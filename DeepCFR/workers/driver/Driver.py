@@ -75,6 +75,7 @@ class Driver(DriverBase):
         # """"""""""""""""
         self.algo.init()
 
+        self.algo._generate_traversals(p_id=1e-3, cfr_iter=1000)
         print("Starting Training...")
         for _iter_nr in range(10000000 if self.n_iterations is None else self.n_iterations):
             print("Iteration: ", self._cfr_iter)

@@ -21,7 +21,8 @@ if __name__ == '__main__':
                                  1000.0  # Note that 1000x pot will always be >pot and thereby represents all-in
                              ],
                              stack_randomization_range=(0, 0,),
-                             starting_stack_sizes_list=[150, 37, 130]
+                             starting_stack_sizes_list=[150, 37, 130],
+                             scale_rewards=False
                              )
 
     game = InteractiveGame(env_cls=game_cls,

@@ -922,7 +922,8 @@ class PokerEnv:
 
             # Проверяем пиздецки редкую ситуацию, можем ли мы вообще сделать рейз если 
             # кто то выставился в оллин и раница в ставках меньше минрейза
-            all_done_act=self._all_done_actions()
+      
+            all_done_act=len([p for p in self.seats if not p.has_acted_this_round]) == 0
             min_raise=self.BIG_BLIND # self._get_current_total_min_raise()
             biggest_bet= self._get_biggest_bet_out_there_aka_total_to_call()
             if all_done_act and biggest_bet - self.current_player.current_bet < min_raise:
@@ -948,8 +949,7 @@ class PokerEnv:
             raise_to = self.current_player.stack + self.current_player.current_bet
         return [Poker.BET_RAISE, int(raise_to)]
     
-    def _all_done_actions(self):
-        return len([p for p in self.seats if not p.has_acted_this_round]) == 0
+    
     
     def _should_continue_in_this_round(self, all_non_all_in_and_non_fold_p, all_nonfold_p):
         """ util function used in ._step() """
@@ -961,7 +961,7 @@ class PokerEnv:
         
         largest_bet = max([p.current_bet for p in self.seats])
         if len([p for p in all_nonfold_p if p.is_allin or p.current_bet == largest_bet]) == len(all_nonfold_p) \
-            and self._all_done_actions():
+            and  len([p for p in all_non_all_in_and_non_fold_p if not p.has_acted_this_round]) == 0:
             return False
 
         

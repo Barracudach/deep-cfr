@@ -5,68 +5,6 @@ import torch.nn.functional as F
 import numpy as np
 import random
 
-class ReservoirBuffer(object):
-    """Allows uniform sampling over a stream of data.
-
-    This class supports the storage of arbitrary elements, such as observation
-    tensors, integer actions, etc.
-
-    See https://en.wikipedia.org/wiki/Reservoir_sampling for more details.
-    """
-
-    def __init__(self, reservoir_buffer_capacity):
-        self._reservoir_buffer_capacity = reservoir_buffer_capacity
-        self._data = []
-        self._add_calls = 0
-
-    def add(self, element):
-        """Potentially adds `element` to the reservoir buffer.
-
-        Args:
-            element: data to be added to the reservoir buffer.
-        """
-        if len(self._data) < self._reservoir_buffer_capacity:
-            self._data.append(element)
-        else:
-            idx = np.random.randint(0, self._add_calls + 1)
-            if idx < self._reservoir_buffer_capacity:
-                self._data[idx] = element
-        self._add_calls += 1
-
-    def sample(self, num_samples):
-        """Returns `num_samples` uniformly sampled from the buffer.
-
-        Args:
-            num_samples: `int`, number of samples to draw.
-
-        Returns:
-            An iterable over `num_samples` random elements of the buffer.
-
-        Raises:
-            ValueError: If there are less than `num_samples` elements in the buffer
-        """
-        if len(self._data) < num_samples:
-            raise ValueError('{} elements could not be sampled from size {}'.format(
-                num_samples, len(self._data)))
-        return random.sample(self._data, num_samples)
-
-    def clear(self):
-        self._data = []
-        self._add_calls = 0
-
-    def __len__(self):
-        return len(self._data)
-
-    def __iter__(self):
-        return iter(self._data)
-
-    @property
-    def data(self):
-        return self._data
-
-    def shuffle_data(self):
-        random.shuffle(self._data)
-
 
 class SkipDense(nn.Module):
     """Dense Layer with skip connection."""
@@ -100,7 +38,7 @@ class PolicyNetwork(nn.Module):
 
         # Hidden layers
         self.hidden = nn.ModuleList()
-        prev_units = 0
+        prev_units = self._input_size  # Используем input_size для первого слоя
         for units in policy_network_layers[:-1]:
             if prev_units == units:
                 self.hidden.append(SkipDense(units))
@@ -170,7 +108,7 @@ class AdvantageNetwork(nn.Module):
 
         # Hidden layers
         self.hidden = nn.ModuleList()
-        prev_units = 0
+        prev_units = self._input_size 
         for units in adv_network_layers[:-1]:
             if prev_units == units:
                 self.hidden.append(SkipDense(units))
@@ -217,3 +155,40 @@ class AdvantageNetwork(nn.Module):
         x = mask * x
 
         return x
+    
+    @torch.no_grad()
+    def get_matched_regrets(self, info_state:torch.Tensor, legal_actions_mask:torch.Tensor):
+        """
+        Calculate regret matching.
+
+        Args:
+            info_state (torch.Tensor): Information state tensor.
+            legal_actions_mask (torch.Tensor): Mask of legal actions.
+            player (int): Player index.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: Advantages and matched regrets.
+        """
+        # Expand dimensions to match batch size
+        info_state = info_state.unsqueeze(0)  # Add batch dimension
+        legal_actions_mask = legal_actions_mask.unsqueeze(0)  # Add batch dimension
+
+        # Get advantages from the network
+        advs = self((info_state, legal_actions_mask))
+
+        # Apply ReLU to get positive advantages
+        advantages = torch.relu(advs)
+
+        # Sum of positive advantages
+        summed_regret = torch.sum(advantages, dim=1, keepdim=True)
+
+        # Calculate matched regrets
+        if summed_regret > 0:
+            matched_regrets = advantages / summed_regret
+        else:
+            # If all advantages are zero, choose the best legal action
+            masked_advs = torch.where(legal_actions_mask == 1, advs, torch.tensor(-10e20, dtype=torch.float32))
+            best_action = torch.argmax(masked_advs, dim=1)
+            matched_regrets = F.one_hot(best_action, num_classes=self._num_actions).float()
+
+        return advantages.squeeze(0).cpu().numpy() , matched_regrets.squeeze(0).cpu().numpy() 

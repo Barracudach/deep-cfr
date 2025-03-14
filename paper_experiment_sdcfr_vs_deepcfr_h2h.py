@@ -18,7 +18,7 @@ if __name__ == '__main__':
 
                                          nn_type="recurrent",  # We also support RNNs, but the paper uses FF
 
-                                         DISTRIBUTED=True,
+                                         DISTRIBUTED=False,
                                          CLUSTER=False,
                                          n_learner_actor_workers=1,  # 20 workers
 
