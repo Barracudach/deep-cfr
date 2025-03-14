@@ -18,10 +18,12 @@ import torch.optim as optim
 
 from DeepCFR.workers.la.local import LearnerActor as LocalLearnerActor
 from MyDeepCfr.EnvWrapper import EnvWrapper
+from torch.utils.tensorboard import SummaryWriter
 
 from .Networks import *
 from .Datasets import *
 import logging
+import time
 
 
 class DeepCFRSolver:
@@ -37,15 +39,18 @@ class DeepCFRSolver:
                memory_capacity: int = int(1e6),
                policy_network_train_steps: int = 5000,
                advantage_network_train_steps: int = 750,
-               reinitialize_advantage_networks: bool = True,
-               save_advantage_networks: str = None,
-               save_strategy_memories: str = None,
+               reinitialize_advantage_networks: bool = False,
+               save_advantage_networks: str = True,
+               save_strategy_memories: str = True,
+               adv_weight_decay=0.01,
+               strat_weight_decay=0.01,
+               enable_tb=True,
                infer_device='cpu',
                train_device='cpu'):
         
       
-        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-        self.logger = logging.getLogger(__name__)
+        logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(message)s')
+        self._logger = logging.getLogger(__name__)
         
         env_wrapper.reset()
         self._env_wrapper:EnvWrapper = env_wrapper
@@ -70,6 +75,12 @@ class DeepCFRSolver:
         self._train_device = train_device
         self._memories_tfrecordpath = None
         self._memories_tfrecordfile = None
+        self._adv_weight_decay= adv_weight_decay
+        self._strat_weight_decay= strat_weight_decay
+        self._enable_tb=enable_tb
+            
+        if self._enable_tb:
+            self._tensorboard = SummaryWriter(f"./tensorboard/")
 
         if torch.cuda.is_available():
             self.device = torch.device("cuda")
@@ -77,19 +88,7 @@ class DeepCFRSolver:
         else:
             self.device = torch.device("cpu")
             print("Launching on CPU")
-        
-        # Initialize file save locations
-        if self._save_advantage_networks:
-            os.makedirs(self._save_advantage_networks, exist_ok=True)
-
-        if self._save_strategy_memories:
-            if os.path.isdir(self._save_strategy_memories):
-                self._memories_tfrecordpath = os.path.join(
-                    self._save_strategy_memories, 'strategy_memories.tfrecord')
-            else:
-                os.makedirs(
-                    os.path.split(self._save_strategy_memories)[0], exist_ok=True)
-                self._memories_tfrecordpath = self._save_strategy_memories
+    
 
         # Initialize policy network, loss, optmizer
         self._reinitialize_policy_network()
@@ -115,7 +114,7 @@ class DeepCFRSolver:
             )
 
             # Функция потерь (Mean Squared Error)
-            self._loss_advantages.append(nn.MSELoss())
+            self._loss_advantages.append(nn.MSELoss(reduction='none'))
 
             # Оптимизатор (Adam)
             self._optimizer_advantages.append(
@@ -130,15 +129,17 @@ class DeepCFRSolver:
     def _reinitialize_policy_network(self):
         self._policy_network = PolicyNetwork(self._embedding_size, 
                                              self._policy_network_layers,self._num_actions).to(self.device)
-        self._optimizer_policy = optim.Adam(params=self._policy_network.parameters(), lr=self._learning_rate)
-        self._loss_policy = nn.MSELoss()
+        self._optimizer_policy = optim.Adam(params=self._policy_network.parameters(), 
+                                            lr=self._learning_rate,
+                                            weight_decay=self._strat_weight_decay)
+        self._loss_policy = nn.MSELoss(reduction='none')
 
     def _reinitialize_advantage_network(self, player):
         self._adv_networks_train[player] = AdvantageNetwork( self._embedding_size, 
                                                             self._advantage_network_layers, self._num_actions)
-        self._optimizer_advantages[player] = optim.Adam(params= self._adv_networks_train[player].get_parameter(), lr=self._learning_rate)
-        self._advantage_train_step[player] = (self._get_advantage_train_graph(player))
-
+        self._optimizer_advantages[player] = optim.Adam(params= self._adv_networks_train[player].parameters(),
+                                                         lr=self._learning_rate, 
+                                                         weight_decay=self._adv_weight_decay)
     
     def _advantage_train_step(self, player, info_states, advantages, iterations, masks, iteration):
         # Переводим данные в тензоры PyTorch
@@ -202,27 +203,126 @@ class DeepCFRSolver:
             self._env_wrapper.load_state_dict(state)  # Восстановление состояния
             return ev
             
+    def _learn_advantage_network(self, player):
+        if len(self._advantage_memories[player]) < self._batch_size_advantage:
+            return None
 
+        dataloader = self._advantage_memories[player].get_dataloader(
+            batch_size=self._batch_size_advantage,
+            shuffle=True,
+        )
+
+        total_loss = 0.0
+        for batch in dataloader:
+            info_states, iterations, samp_regrets, legal_actions = batch
+
+            info_states = info_states.to(self.device)
+            samp_regrets = samp_regrets.to(self.device)
+            legal_actions = legal_actions.to(self.device)
+
+   
+            model:AdvantageNetwork = self._adv_networks_train[player]
+            optimizer:optim.Adam = self._optimizer_advantages[player]
+            loss_func:nn.MSELoss=self._loss_advantages[player]
+
+            optimizer.zero_grad()
+            model.train()
+
+            preds = model((info_states, legal_actions))
+            sample_weight = (iterations * 2 / self._iteration).unsqueeze(1).to(self.device)
+            main_loss:torch.Tensor = loss_func(preds, samp_regrets)*sample_weight
+            main_loss=main_loss.mean()
+
+            main_loss.backward()
+            optimizer.step()
+            total_loss += main_loss.sum()
+
+        self._adv_networks[player].load_state_dict(
+            self._adv_networks_train[player].state_dict()
+        )
+
+        return (total_loss / len(dataloader)).item()
+    
+
+    def _learn_strategy_network(self):
+        if len(self._strategy_memories) < self._batch_size_advantage:
+            return None
+
+        dataloader = self._strategy_memories.get_dataloader(
+            batch_size=self._batch_size_strategy,
+            shuffle=True,
+        )
+
+        total_loss = 0.0
+        for batch in dataloader:
+            pass
+    
+    def load_checkpoint(self):
+        try:
+            data = torch.load(f'./checkpoints/{self._num_players}players.pt')
+
+            self._policy_network.load_state_dict(data['policy_network'])
+            for i in range(self._num_players):
+                self._adv_networks[i].load_state_dict(data[f'adv_networks{i}'])
+
+            self._players_steps = data['players_steps']
+            self._iteration = data['iteration']
+            self._logger.info("Checkpoint loaded")
+        except Exception as e:
+            self._logger.info(f"[-]Cant load checkpoint {self._num_players}players.pt {e}")
+
+    def save_checkpoint(self):
+        try:
+            os.makedirs(f"./checkpoints", exist_ok=True)
+            checkpoint = {
+                'policy_network': self._policy_network.state_dict(),
+                'players_steps': self._players_steps,
+                'iteration': self._iteration,
+            }
+
+            for i in range(self._num_players):
+                checkpoint[f'adv_networks{i}'] = self._adv_networks[i].state_dict()
+
+            torch.save(checkpoint, f'./checkpoints/{self._num_players}players.pt')
+            self._logger.info("Checkpoint saved")
+        except Exception as e:
+            self._logger.info(f"[-]Failed to save model {self._num_players}players.pt: {e}")
 
     def solve(self):
-        advantage_losses = collections.defaultdict(list)
+        self._players_steps=[0]*self._num_players
+        self.load_checkpoint()
+        
         for iter in range(self._num_iterations):
-            print(f"Iteration {iter}")
+            self._logger.info(f"Iteration {iter}")
             for p in range(self._num_players):
                 for traverse_iter in range(self._num_traversals):
-                    print(f"Traverse {p} player. Iter: {traverse_iter}")
+                    self._logger.info(f"Traverse {p} player. Iter: {traverse_iter}/{self._num_traversals}")
+                    start = time.time()
                     self._env_wrapper.reset()
                     self._traverse_game_tree(self._root_state, p)
-                    #if self._reinitialize_advantage_networks:
-                    # Re-initialize advantage network for p and train from scratch.
-                    #     self._reinitialize_advantage_network(p)
-                    # advantage_losses[p].append(self._learn_advantage_network(p))
-                    # if self._save_advantage_networks:
-                    #     os.makedirs(self._save_advantage_networks, exist_ok=True)
-                    #     self._adv_networks[p].save(
-                    #         os.path.join(self._save_advantage_networks,
-                    #                     f'advnet_p{p}_it{self._iteration:04}'))
+                    self._logger.info(f"Traverse time:{time.time()-start}")
+
+                if self._reinitialize_advantage_networks:
+                    self._reinitialize_advantage_network(p)
+                
+                self._logger.info(f"Learn advantage network")
+                loss=self._learn_advantage_network(p)
+
+                if self._enable_tb:
+                    self._tensorboard.add_scalar(f"loss/adv_net{p}", loss,self._players_steps[p])
+
+                self._logger.info(f"Loss: {loss}")
+
+                if self._save_advantage_networks :#and self._players_steps[p]%10==0
+                    self.save_checkpoint()
+                    
+                self._players_steps[p]+=1
+
             self._iteration += 1
-        # Train policy network.
-        #policy_loss = self._learn_strategy_network()
-        #return self._policy_network, advantage_losses, policy_loss
+
+        self._logger.info("Learn strategy network")
+        policy_loss = self._learn_strategy_network()
+
+    #return self._policy_network, advantage_losses, policy_loss
+
+    

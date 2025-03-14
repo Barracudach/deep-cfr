@@ -11,7 +11,7 @@ env_args = DiscretizedNLHoldem.ARGS_CLS(n_seats=3,
                             1000.0
                         ],
                         stack_randomization_range=(0, 0,),
-                        starting_stack_sizes_list=[250,250,250]
+                        starting_stack_sizes_list=[1000,1000,1000]
                         )
 env= DiscretizedNLHoldem(env_args,lut_holder=DiscretizedNLHoldem.get_lut_holder(),is_evaluating=True)
 
@@ -21,10 +21,10 @@ solver = DeepCFRSolver(
             env_wrapper,
             policy_network_layers=(8, 4),
             advantage_network_layers=(128, 128, 128, 64),
-            num_iterations=2,
-            num_traversals=2,
+            num_iterations=10,
+            num_traversals=5,
             learning_rate=1e-3,
-            batch_size_advantage=8,
+            batch_size_advantage=1000,
             batch_size_strategy=8,
             memory_capacity=int(1e7)
         )
