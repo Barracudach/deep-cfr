@@ -304,7 +304,7 @@ class DeepCFRSolver:
 
     def load_network(self,network,name):
         try:
-            data = torch.load(f'./checkpoints/{self._num_players}players.pt')
+            data = torch.load(f'./checkpoints/{name}.pt')
             network.load_state_dict(data["net"])
         except Exception as e:
             self._logger.info(f"[-]Cant load network {name}.pt . Exception:{e}")
@@ -359,7 +359,7 @@ class DeepCFRSolver:
                 self._logger.info(f"Traverse time:{time.time()-start}")
                 if self._enable_tb:
                     self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/adv{p}", len(self._advantage_memories[p]) , self._players_steps[p])
-                    self._tensorboard.add_scalar("solver{self._solver_idx}/buffer/pol", len(self._strategy_memories) , self._players_steps[p])
+                    self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/pol", len(self._strategy_memories) , self._players_steps[p])
                 self._players_steps[p]+=1
 
             if len(self._advantage_memories[p]) < self._batch_size_advantage:
@@ -380,7 +380,7 @@ class DeepCFRSolver:
         self._logger.info("Learn strategy network")
         policy_loss = self._learn_strategy_network()
         if self._enable_tb:
-            self._tensorboard.add_scalar(f"solver{self._solver_idx}/loss/pol_net{p}", policy_loss,self._iteration)
+            self._tensorboard.add_scalar(f"solver{self._solver_idx}/loss/pol_net", policy_loss,self._iteration)
      
         self._iteration += 1
 

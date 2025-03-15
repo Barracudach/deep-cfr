@@ -1473,7 +1473,7 @@ class PokerEnv:
             print("Board: ", self.cards2str(self.board))
 
             print(("Last Action:   player_" + str(self.last_action[2]) + ": " + str(self.last_action[0]) + " " +
-                   str(self.last_action[1]).rjust(113)), "|   Main_pot: ", str(self.main_pot).rjust(7))
+                   str(self.last_action[1]).rjust(100)), "|   Main_pot: ", str(self.main_pot).rjust(7))
 
             # player information
             for p in self.seats:
@@ -1487,7 +1487,7 @@ class PokerEnv:
                       # sidepots
                       " " * 18,
                       '|   Side_pot' + str(p.seat_id) + ": " + str(self.side_pots[p.seat_id]).rjust(6))
-
+           
             if self.IS_FIXED_LIMIT_GAME:
                 print("Num raises this round: ", self.n_raises_this_round)
             print("\n")

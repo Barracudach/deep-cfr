@@ -9,10 +9,22 @@ yourself.
 from PokerRL.game.InteractiveGame import InteractiveGame
 from PokerRL.game.games import DiscretizedNLHoldem 
 from PokerRL.game.poker_env_args import DiscretizedPokerEnvArgs
+import torch
+from MyDeepCfr.Networks import PolicyNetwork
+from MyDeepCfr.Test.Sandbox import *
+
+# Загрузка модели
+def load_policy_network(model_path, input_size, policy_network_layers, num_actions):
+    model = PolicyNetwork(input_size, policy_network_layers, num_actions)
+    model.load_state_dict(torch.load(model_path)["net"])
+    model.eval()  # Переключение в режим оценки
+    return model
 
 if __name__ == '__main__':
-    game_cls = DiscretizedNLHoldem
-    args = game_cls.ARGS_CLS(n_seats=3,
+    
+ 
+    seats_human_plays_list = [0]  # Пользователь играет за место 0
+    args = DiscretizedNLHoldem.ARGS_CLS(n_seats=2,
                              bet_sizes_list_as_frac_of_pot=[
                                  0.2,
                                  0.5,
@@ -21,13 +33,37 @@ if __name__ == '__main__':
                                  1000.0  # Note that 1000x pot will always be >pot and thereby represents all-in
                              ],
                              stack_randomization_range=(0, 0,),
-                             starting_stack_sizes_list=[150, 37, 130],
+                             starting_stack_sizes_list=[100, 100],
                              scale_rewards=False
                              )
-
-    game = InteractiveGame(env_cls=game_cls,
-                           env_args=args,
-                           seats_human_plays_list=[0, 1, 2],
-                           )
+    env = DiscretizedNLHoldem(env_args=args, is_evaluating=True, lut_holder=DiscretizedNLHoldem.get_lut_holder())
+    env.reset()
+    policy_network = load_policy_network("./checkpoints/pol_net.pt", len(env.get_current_obs(False)), (128, 128, 128, 64), env.N_ACTIONS)
+    
+   
+    game = Sandbox(env,seats_human_plays_list, policy_network)
 
     game.start_to_play()
+    
+
+# if __name__ == '__main__':
+#     game_cls = DiscretizedNLHoldem
+#     args = game_cls.ARGS_CLS(n_seats=3,
+#                              bet_sizes_list_as_frac_of_pot=[
+#                                  0.2,
+#                                  0.5,
+#                                  1.0,
+#                                  2.0,
+#                                  1000.0  # Note that 1000x pot will always be >pot and thereby represents all-in
+#                              ],
+#                              stack_randomization_range=(0, 0,),
+#                              starting_stack_sizes_list=[150, 37, 130],
+#                              scale_rewards=False
+#                              )
+
+#     game = InteractiveGame(env_cls=game_cls,
+#                            env_args=args,
+#                            seats_human_plays_list=[0, 1, 2],
+#                            )
+
+#     game.start_to_play()

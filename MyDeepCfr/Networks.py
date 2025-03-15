@@ -88,7 +88,21 @@ class PolicyNetwork(nn.Module):
         x = self.softmax(x)
 
         return x
+    
+    @torch.no_grad()
+    def get_strategy(self, info_state:torch.Tensor, legal_actions_mask:torch.Tensor):
 
+        # Expand dimensions to match batch size
+        info_state = info_state.unsqueeze(0)  # Add batch dimension
+        legal_actions_mask = legal_actions_mask.unsqueeze(0)  # Add batch dimension
+
+        # Get advantages from the network
+        strat = self((info_state, legal_actions_mask))
+
+        # Apply ReLU to get positive advantages
+        strat = torch.relu(strat)
+
+        return strat.squeeze(0).cpu().numpy()
 
 class AdvantageNetwork(nn.Module):
     """Implements the advantage network as an MLP with skip connections and layer normalization."""
