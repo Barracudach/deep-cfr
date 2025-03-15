@@ -3,6 +3,8 @@ import random
 from collections import deque
 import torch
 from torch.utils.data import Dataset, DataLoader
+import ray
+
 
 
 class AdvantageDataset(Dataset):
@@ -47,8 +49,7 @@ class AdvantageDataset(Dataset):
         )
         return dataloader
 
-
-class  StrategyDataset:
+class  StrategyDataset(Dataset):
     def __init__(self,max_capacity:int):
         self._buffer=deque(maxlen=max_capacity)
 
