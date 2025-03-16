@@ -457,12 +457,12 @@ class PokerEnv:
 
     def _post_small_blind(self):
         player = self.seats[self.SB_POS]
-        player.bet_raise(self.SMALL_BLIND)
+        player.bet_raise(min(self.SMALL_BLIND,player.stack))
         player.has_acted_this_round = False
 
     def _post_big_blind(self):
         player = self.seats[self.BB_POS]
-        player.bet_raise(self.BIG_BLIND)
+        player.bet_raise(min(self.BIG_BLIND,player.stack))
         player.has_acted_this_round = False
 
     def _payout_pots(self):
@@ -703,7 +703,7 @@ class PokerEnv:
         elif processed_action[0] == Poker.FOLD:
             self.current_player.fold()
 
-        elif processed_action[0] == Poker.BET_RAISE:
+        elif processed_action[0] == Poker.BET_RAISE or processed_action[0] == Poker.MIN_RAISE or processed_action[0] == Poker.ALLIN:
 
             # This happens when someone has fewer chips than minraise and goes all in.
             # The last raiser, if there is one, can't reopen in this case until someone else reraises!
@@ -728,7 +728,7 @@ class PokerEnv:
                 self.n_raises_this_round += 1
         else:
             raise RuntimeError(processed_action[0], " is not legal")
-
+    
         self.last_action = [processed_action[0], processed_action[1], self.current_player.seat_id]
 
         # ______________________________________________________________________________________________________________
@@ -866,7 +866,7 @@ class PokerEnv:
         """
         chip count of max([p.current_bet for p in self.seats])
         """
-        return max([p.current_bet for p in self.seats])
+        return max(max([p.current_bet for p in self.seats]),self.BIG_BLIND)
 
     def _get_player_that_has_to_act_next(self):
         idx = self.seats.index(self.current_player) + 1
@@ -913,7 +913,7 @@ class PokerEnv:
 
             return self._process_check_call(total_to_call=total_to_call)
 
-        elif _action_idx == Poker.BET_RAISE:
+        elif _action_idx == Poker.BET_RAISE  or _action_idx == Poker.MIN_RAISE or _action_idx == Poker.ALLIN:
 
             # Limit Poker specific rule
             if self.IS_FIXED_LIMIT_GAME:
@@ -933,6 +933,10 @@ class PokerEnv:
                 or (self.capped_raise.player_that_cant_reopen is self.current_player)):
                 return self._process_check_call(total_to_call=total_to_call)
             else:
+                if _action_idx==Poker.MIN_RAISE:
+                    return self._process_minraise(raise_total_amount_in_chips=total_to_call)
+                if _action_idx == Poker.ALLIN:
+                    return self._process_allin(raise_total_amount_in_chips=action[1])
                 return self._process_raise(raise_total_amount_in_chips=action[1])
         else:
             raise RuntimeError('invalid action ({}) must be fold (0), call (1), or raise (2) '.format(_action_idx))
@@ -941,7 +945,21 @@ class PokerEnv:
         delta_to_call = min(total_to_call - self.current_player.current_bet, self.current_player.stack)
         total_bet_to_be_placed = int(delta_to_call + self.current_player.current_bet)
         return [Poker.CHECK_CALL, total_bet_to_be_placed]
-
+    
+    def _process_minraise(self, raise_total_amount_in_chips):
+        raise_to = self._adjust_raise(raise_total_amount_in_chips=raise_total_amount_in_chips)
+        # lastly, if that amount is too much, raise all in
+        if self.current_player.current_bet + self.current_player.stack < raise_to:
+            raise_to = self.current_player.stack + self.current_player.current_bet
+        return [Poker.MIN_RAISE, int(raise_to)]
+    
+    def _process_allin(self, raise_total_amount_in_chips):
+        raise_to = self._adjust_raise(raise_total_amount_in_chips=raise_total_amount_in_chips)
+        # lastly, if that amount is too much, raise all in
+        if self.current_player.current_bet + self.current_player.stack < raise_to:
+            raise_to = self.current_player.stack + self.current_player.current_bet
+        return [Poker.ALLIN, int(raise_to)]
+    
     def _process_raise(self, raise_total_amount_in_chips):
         raise_to = self._adjust_raise(raise_total_amount_in_chips=raise_total_amount_in_chips)
         # lastly, if that amount is too much, raise all in
@@ -1059,7 +1077,7 @@ class PokerEnv:
                 self.last_action[1] / normalization_sum if self.last_action[0] is not None else 0,
             ]
 
-            x_what = [0] * 3  # last action what
+            x_what = [0] * 5  # last action what
             x_who = [0] * self.N_SEATS  # last action who
             if self.last_action[0] is not None:
                 x_who[self.last_action[2]] = 1
@@ -1510,7 +1528,7 @@ class PokerEnv:
             except ValueError:
                 print("You need to enter one of the allowed actions. Refer to the tutorial please.")
                 continue
-            if action_idx not in [Poker.FOLD, Poker.CHECK_CALL, Poker.BET_RAISE]:
+            if action_idx not in [Poker.FOLD, Poker.CHECK_CALL, Poker.ALLIN, Poker.BET_RAISE]:
                 print("Invalid action_idx! Please enter one of the allowed actions as described in the tutorial above.")
                 continue
             break

@@ -105,7 +105,7 @@ class DiscretizedPokerEnvArgs(_PokerEnvArgs):
                          *args, **kwargs)
         self.bet_sizes_list_as_frac_of_pot = bet_sizes_list_as_frac_of_pot
         self.uniform_action_interpolation = uniform_action_interpolation
-        self.N_ACTIONS = len(self.bet_sizes_list_as_frac_of_pot) + 2  # +2 is for FOLD and CHECK/CALL.
+        self.N_ACTIONS = len(self.bet_sizes_list_as_frac_of_pot) + 4  # +2 is for FOLD and CHECK/CALL.
 
 
 class LimitPokerEnvArgs(_PokerEnvArgs):

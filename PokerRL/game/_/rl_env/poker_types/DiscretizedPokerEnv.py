@@ -58,13 +58,17 @@ class DiscretizedPokerEnv(_PokerEnv):
             return [0, -1]
         if action_int == 1:
             return [1, -1]
-        elif action_int > 1:
-            selected = self.get_fraction_of_pot_raise(fraction=self.bet_sizes_list_as_frac_of_pot[action_int - 2],
+        if action_int == 2:
+            return [2, self.current_player.stack+self.current_player.current_bet]
+        if action_int == 3:
+            return [3, self._get_current_total_min_raise()]
+        elif action_int > 3:
+            selected = self.get_fraction_of_pot_raise(fraction=self.bet_sizes_list_as_frac_of_pot[action_int - 4],
                                                       player_that_bets=self.current_player)
 
             if self.uniform_action_interpolation and not self.IS_EVALUATING:
                 # _________________________________________ The maximal amount _________________________________________
-                if action_int == self.N_ACTIONS - 1:  # if highest bet in repertoire
+                if action_int == self.N_ACTIONS - 4:  # if highest bet in repertoire
                     if self.IS_POT_LIMIT_GAME:  # if PL game: max is pot
                         max_amnt = self.get_fraction_of_pot_raise(fraction=1.0, player_that_bets=self.current_player)
                     elif self.IS_FIXED_LIMIT_GAME:
@@ -111,23 +115,19 @@ class DiscretizedPokerEnv(_PokerEnv):
             if self._get_fixed_action(action=_a)[0] == a_int:
                 legal_actions.append(a_int)
 
+        
         # since raises are ascending in the list, we can simply loop and break
-        _last_too_small = None
         for a in range(2, self.N_ACTIONS):  # only loops through raises
             adj_a = self._get_env_adjusted_action_formulation(action_int=a) # берет реально посчитанное действие
             fixed_a = self._get_fixed_action(action=adj_a) #аппроксимация реальной ставки к ближайшей допустимой
 
             if adj_a[0] != fixed_a[0]:  # if we wanted to raise, but env told us we can not, dont append a raise
                 break  
+            
+            if adj_a[1] < fixed_a[1] or adj_a[1]>self.current_player.stack+self.current_player.current_bet:
+                continue
 
-            if adj_a[1] < fixed_a[1]:
-                _last_too_small = a
-            else:
-                if _last_too_small is not None:
-                    legal_actions.append(_last_too_small)  # was to small, but rounded to minraise & is unique -> append
-                    _last_too_small = None
-
-                legal_actions.append(a)  # this action might be modified by env, but is legal and unique -> append
+            legal_actions.append(a)  # this action might be modified by env, but is legal and unique -> append
 
             if adj_a[1] > fixed_a[1]:  # if the raise was too big, an even bigger one will yield the same result
                 break
@@ -155,8 +155,10 @@ class DiscretizedPokerEnv(_PokerEnv):
         print("Actions:")
         print("0 \tFold")
         print("1 \tCall")
-        for i in range(2, self.N_ACTIONS):
-            print(i, "\tRaise ", self.bet_sizes_list_as_frac_of_pot[i - 2] * 100, "% of the pot")
+        print("2 \tAllin")
+        print("3 \tMinraise")
+        for i in range(4, self.N_ACTIONS):
+            print(i, "\tRaise ", self.bet_sizes_list_as_frac_of_pot[i - 4] * 100, "% of the pot")
 
     def human_api_ask_action(self):
         """ Returns action in Tuple form. """

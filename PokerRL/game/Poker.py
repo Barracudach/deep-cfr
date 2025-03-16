@@ -33,8 +33,10 @@ class Poker:
     # Possible actions in a poker game.
     FOLD = 0
     CHECK_CALL = 1
-    BET_RAISE = 2
-
+    ALLIN = 2
+    MIN_RAISE = 3
+    BET_RAISE = 4
+  
     # The public board has this value wherever a card has not been dealt. 1D and 2D refers to the two different
     # representations of cards: as an int or as a tuple of (rank, suit) respectively.
     CARD_NOT_DEALT_TOKEN_1D = -127

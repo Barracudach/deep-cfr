@@ -20,14 +20,14 @@ if __name__=="__main__":
                     2.0,
                     1000.0
                 ],
-                starting_stack_sizes_list=[100,100],
+                starting_stack_sizes_list=3,
                 policy_network_layers=(128, 128, 128, 64),
                 advantage_network_layers=(128, 128, 128, 64),
                 num_iterations=10,
                 num_traversals=10,
                 learning_rate=1e-3,
-                batch_size_advantage=8000,
-                batch_size_strategy=10000,
+                batch_size_advantage=50,
+                batch_size_strategy=100,
                 memory_capacity=int(1e5),
                 scale_rewards=True)
 

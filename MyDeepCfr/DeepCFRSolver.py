@@ -25,6 +25,9 @@ from .Datasets import *
 import logging
 import time
 
+import networkx as nx
+import matplotlib.pyplot as plt
+import uuid
 
 class DeepCFRSolver:
     def __init__(self,
@@ -143,11 +146,16 @@ class DeepCFRSolver:
         self._players_steps=[0]*self._num_players
         for i in range(self._num_players):
             self.load_network(self._adv_networks[i], self._adv_net_name+str(i))
-
+            self._adv_networks_train[i].load_state_dict(
+                self._adv_networks[i].state_dict()
+            )   
         self._logger.info(f"Loading networks...")
         self.load_network(self._policy_network, self._pol_net_name)
         self._logger.info(f"Loading memory state...")
         self.load_memory_state()
+
+        
+        
 
 
     def get_model_weights(self):
@@ -175,31 +183,7 @@ class DeepCFRSolver:
         self._optimizer_advantages[player] = optim.Adam(params= self._adv_networks_train[player].parameters(),
                                                          lr=self._learning_rate, 
                                                          weight_decay=self._adv_weight_decay)
-    
-    def _advantage_train_step(self, player, info_states, advantages, iterations, masks, iteration):
-        # Переводим данные в тензоры PyTorch
-        info_states = torch.tensor(info_states, dtype=torch.float32)
-        advantages = torch.tensor(advantages, dtype=torch.float32)
-        masks = torch.tensor(masks, dtype=torch.float32)
-
-        self._optimizer_advantages[player].zero_grad()
-
-        # Прямой проход
-        preds = self._adv_networks_train[player]((info_states, masks))
         
-        # Вычисление потерь
-        sample_weight = iterations / iteration
-        main_loss = self._loss_advantages[player](preds, advantages) * sample_weight
-
-        # Обратный проход и обновление весов
-        main_loss.backward()
-        self.optimizer.step()
-
-        return main_loss.item()
-    
-
-
-    
             
     def _learn_advantage_network(self, player):
        
@@ -315,45 +299,75 @@ class DeepCFRSolver:
             self._logger.info(f"[-]Cant load network {name}.pt . Exception:{e}")
     
 
-    def _traverse_game_tree(self,state, traverser, depth=0):
-        legal_actions_mask =self._env_wrapper.legal_actions_mask()
-        if state["current_player"] == traverser:
+    def _traverse_game_tree(self, state, traverser, depth=0, graph=None, parent_node=None, action_taken=None):
+        legal_actions_mask = self._env_wrapper.legal_actions_mask()
+        obs = self._env_wrapper.get_current_obs()
+        current_player = state["current_player"]
+
+        # Создаем граф, если это первый вызов
+        if graph is None:
+            graph = nx.DiGraph()
+
+        # Уникальный ID узла
+        node_id = str(uuid.uuid4())  # уникальный ID, чтобы не дублировались
+        label = f"d{depth}|P{current_player}"
+        if action_taken is not None:
+            label += f"|a{action_taken}"
+        graph.add_node(node_id, label=label)
+
+        if parent_node is not None:
+            graph.add_edge(parent_node, node_id)
+
+        # Если ход traverser'а
+        if current_player == traverser:
             _, strategy = self._adv_networks[traverser].get_matched_regrets(
-                torch.tensor(self._env_wrapper.get_current_obs(), dtype=torch.float32).to(self.device),
+                torch.tensor(obs, dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
+
             exp_payoff = np.zeros_like(strategy, dtype=np.float32)
+
             for action in self._env_wrapper.legal_actions():
                 _obs, _rew_for_all, _done, _info = self._env_wrapper.step(action)
+
                 if _done:
                     exp_payoff[action] = _rew_for_all[traverser]
                 else:
                     cur_state = self._env_wrapper.state_dict()
-                    exp_payoff[action] = self._traverse_game_tree(cur_state, traverser, depth + 1)
+                    exp_payoff[action] = self._traverse_game_tree(
+                        cur_state, traverser, depth + 1,
+                        graph=graph, parent_node=node_id, action_taken=action
+                    )
                 self._env_wrapper.load_state_dict(state)
+
             ev = np.sum(exp_payoff * strategy)
             samp_regret = (exp_payoff - ev) * legal_actions_mask
 
-            self._advantage_memories[traverser].add(self._env_wrapper.get_current_obs(),self._iteration,samp_regret,legal_actions_mask)
+            self._advantage_memories[traverser].add(obs, self._iteration, samp_regret, legal_actions_mask)
             return ev
+
         else:
-            _, strategy = self._adv_networks[state["current_player"]].get_matched_regrets(
-                torch.tensor(self._env_wrapper.get_current_obs(), dtype=torch.float32).to(self.device),
+            _, strategy = self._adv_networks[current_player].get_matched_regrets(
+                torch.tensor(obs, dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
+
             probs = strategy
             if probs.sum() > 0:
                 probs /= probs.sum()
             else:
-                probs = np.ones_like(probs) / len(probs)  # Равномерное распределение, если сумма равна нулю
+                probs = np.ones_like(probs) / len(probs)
 
             sampled_action = np.random.choice(range(self._num_actions), p=probs)
-            self._strategy_memories.add(self._env_wrapper.get_current_obs(),self._iteration,probs,legal_actions_mask)
+            self._strategy_memories.add(obs, self._iteration, probs, legal_actions_mask)
+
             _obs, _rew_for_all, _done, _info = self._env_wrapper.step(sampled_action)
             if _done:
-                self._env_wrapper.load_state_dict(state) 
+                self._env_wrapper.load_state_dict(state)
                 return _rew_for_all[traverser]
+
             cur_state = self._env_wrapper.state_dict()
-            ev = self._traverse_game_tree(cur_state, traverser, depth + 1)
-            self._env_wrapper.load_state_dict(state) 
+            ev = self._traverse_game_tree(cur_state, traverser, depth + 1,
+                                        graph=graph, parent_node=node_id, action_taken=sampled_action)
+            self._env_wrapper.load_state_dict(state)
             return ev
     
     def _get_n_a_to_sample(self, trav_depth, n_legal_actions):
@@ -419,7 +433,14 @@ class DeepCFRSolver:
         # Масштабирование суммы как в теории Sampled CFR
         return cum_reward * n_legal / n_actions_to_sample
     
-
+    def draw_game_tree(self,graph):
+        pos = nx.spring_layout(graph) 
+        labels = nx.get_node_attributes(graph, 'label')
+        plt.figure(figsize=(16, 10))
+        nx.draw(graph, pos, with_labels=True, labels=labels,
+                node_size=2000, node_color='lightblue', font_size=9, font_weight='bold')
+        plt.title("Game Tree Visualization")
+        plt.show()
     def solve(self):
         
         for p in range(self._num_players):
@@ -427,7 +448,14 @@ class DeepCFRSolver:
                 self._logger.info(f"Traverse {p} player. Iter: {traverse_iter}/{self._num_traversals}")
                 start = time.time()
                 self._env_wrapper.reset()
-                self._traverse_game_tree(self._root_state, p)
+
+                graph = nx.DiGraph()
+                self._traverse_game_tree(self._root_state, traverser=0, graph=graph)
+                self.draw_game_tree(graph)
+                while True:
+                    time.sleep(1)
+                #self._traverse_game_tree(self._root_state, p)
+
                 self._logger.info(f"Traverse time:{time.time()-start}")
                 if self._enable_tb:
                     self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/adv{p}", len(self._advantage_memories[p]) , self._players_steps[p])
