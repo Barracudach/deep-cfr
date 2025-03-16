@@ -89,5 +89,6 @@ class Sandbox:
                 self._winnings_per_seat[s] += np.rint(rews[s] * self._env.REWARD_SCALAR)
 
             print("")
+            print("Current rewards:", rews)
             print("Current Winnings per player:", self._winnings_per_seat)
             input("Press Enter to go to the next round.")

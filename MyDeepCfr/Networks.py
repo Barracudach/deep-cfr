@@ -197,12 +197,37 @@ class AdvantageNetwork(nn.Module):
         summed_regret = torch.sum(advantages, dim=1, keepdim=True)
 
         # Calculate matched regrets
-        if summed_regret > 0:
+        if summed_regret.item() > 0:
             matched_regrets = advantages / summed_regret
         else:
             # If all advantages are zero, choose the best legal action
-            masked_advs = torch.where(legal_actions_mask == 1, advs, torch.tensor(-10e20, dtype=torch.float32))
+            masked_advs = torch.where(legal_actions_mask == 1, advs, torch.full_like(advs, -1e20))
             best_action = torch.argmax(masked_advs, dim=1)
-            matched_regrets = F.one_hot(best_action, num_classes=self._num_actions).float()
+            matched_regrets = legal_actions_mask / legal_actions_mask.sum()
 
         return advantages.squeeze(0).cpu().numpy() , matched_regrets.squeeze(0).cpu().numpy() 
+    
+    @torch.no_grad()
+    def get_matched_regrets2(self, info_states: torch.Tensor, legal_actions_masks: torch.Tensor, to_np=True):
+
+        advantages_raw = self((info_states, legal_actions_masks))  # [batch_size, num_actions]
+        advantages = F.relu(advantages_raw)
+
+        sum_regret = advantages.sum(dim=0, keepdim=True)  # [batch_size, 1]
+        sum_regret_expanded = sum_regret.expand_as(advantages)
+
+        best_legal_deterministic = torch.zeros_like(advantages, dtype=torch.float32)
+        best_actions = torch.argmax(
+            torch.where(legal_actions_masks.bool(), advantages_raw, torch.full_like(advantages_raw, -1e20)),
+            dim=0
+        )
+        batch_idx = torch.arange(info_states.size(0), device=info_states.device)
+        best_legal_deterministic[ best_actions] = 1.0
+
+        strategy = torch.where(sum_regret_expanded > 0,
+                                advantages / sum_regret_expanded,
+                                best_legal_deterministic )
+
+        if to_np:
+            return advantages.cpu().numpy(), strategy.cpu().numpy()
+        return advantages, strategy

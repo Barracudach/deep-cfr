@@ -1472,8 +1472,8 @@ class PokerEnv:
 
             print("Board: ", self.cards2str(self.board))
 
-            print(("Last Action:   player_" + str(self.last_action[2]) + ": " + str(self.last_action[0]) + " " +
-                   str(self.last_action[1]).rjust(100)), "|   Main_pot: ", str(self.main_pot).rjust(7))
+            print(("Last Action:   player_" + str(self.last_action[2]) + ": " + str(self.last_action[0]) + "|" +
+                   str(self.last_action[1])), "       Main_pot: ", str(self.main_pot).rjust(7))
 
             # player information
             for p in self.seats:

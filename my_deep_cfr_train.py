@@ -9,7 +9,6 @@ SYNT_INTERVAL = 1
 
 
 if __name__=="__main__":
-    ray.init()
 
     solver = DeepCFRSolver(
                 0,  
@@ -27,13 +26,16 @@ if __name__=="__main__":
                 num_iterations=10,
                 num_traversals=10,
                 learning_rate=1e-3,
-                batch_size_advantage=1000,
-                batch_size_strategy=1000,
-                memory_capacity=int(1e5))
+                batch_size_advantage=8000,
+                batch_size_strategy=10000,
+                memory_capacity=int(1e5),
+                scale_rewards=True)
 
     for iteration in range(NUM_ITERATIONS):
         solver.solve()
-        solver.save_all_networks()
+        if iteration%10==0:
+            solver.save_all_networks()
+            solver.save_memory_state()
 
 
 
