@@ -6,9 +6,9 @@ This script will start a game of 3-player No-Limit Texas Hold'em with discrete b
 yourself.
 """
 
-from PokerRL.game.InteractiveGame import InteractiveGame
-from PokerRL.game.games import DiscretizedNLHoldem 
-from PokerRL.game.poker_env_args import DiscretizedPokerEnvArgs
+from PokerEnv.InteractiveGame import InteractiveGame
+from PokerEnv.games import DiscretizedNLHoldem 
+
 import torch
 from MyDeepCfr.Networks import PolicyNetwork
 from MyDeepCfr.Test.Sandbox import *
@@ -29,11 +29,10 @@ def load_policy_network(model_path, input_size, policy_network_layers, num_actio
 #                                  0.2,
 #                                  0.5,
 #                                  1.0,
-#                                  2.0,
-#                                  1000.0  # Note that 1000x pot will always be >pot and thereby represents all-in
+#                                  2.0 # Note that 1000x pot will always be >pot and thereby represents all-in
 #                              ],
 #                              stack_randomization_range=(0, 0,),
-#                              starting_stack_sizes_list=[200,20],
+#                              starting_stack_sizes_list=[40,40],
 #                              scale_rewards=False
 #                              )
 #     env = DiscretizedNLHoldem(env_args=args, is_evaluating=True, lut_holder=DiscretizedNLHoldem.get_lut_holder())
@@ -57,7 +56,7 @@ if __name__ == '__main__':
                                  1000.0  # Note that 1000x pot will always be >pot and thereby represents all-in
                              ],
                              stack_randomization_range=(0, 0,),
-                             starting_stack_sizes_list=[150, 34, 7],
+                             starting_stack_sizes_list=[150,24,140],
                              scale_rewards=False
                              )
 

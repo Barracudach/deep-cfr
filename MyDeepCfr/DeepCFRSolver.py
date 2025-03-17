@@ -210,7 +210,7 @@ class DeepCFRSolver:
             model.train()
 
             preds = model((info_states, legal_actions))
-            sample_weight = (iterations  / self._iteration).unsqueeze(1).to(self.device)
+            sample_weight = (iterations / self._iteration).unsqueeze(1).to(self.device)
             main_loss:torch.Tensor = loss_func(preds, samp_regrets)*sample_weight
             main_loss=main_loss.mean()
 
@@ -299,24 +299,11 @@ class DeepCFRSolver:
             self._logger.info(f"[-]Cant load network {name}.pt . Exception:{e}")
     
 
-    def _traverse_game_tree(self, state, traverser, depth=0, graph=None, parent_node=None, action_taken=None):
+    def _traverse_game_tree(self, state, traverser, depth=0):
         legal_actions_mask = self._env_wrapper.legal_actions_mask()
         obs = self._env_wrapper.get_current_obs()
         current_player = state["current_player"]
 
-        # Создаем граф, если это первый вызов
-        if graph is None:
-            graph = nx.DiGraph()
-
-        # Уникальный ID узла
-        node_id = str(uuid.uuid4())  # уникальный ID, чтобы не дублировались
-        label = f"d{depth}|P{current_player}"
-        if action_taken is not None:
-            label += f"|a{action_taken}"
-        graph.add_node(node_id, label=label)
-
-        if parent_node is not None:
-            graph.add_edge(parent_node, node_id)
 
         # Если ход traverser'а
         if current_player == traverser:
@@ -333,10 +320,7 @@ class DeepCFRSolver:
                     exp_payoff[action] = _rew_for_all[traverser]
                 else:
                     cur_state = self._env_wrapper.state_dict()
-                    exp_payoff[action] = self._traverse_game_tree(
-                        cur_state, traverser, depth + 1,
-                        graph=graph, parent_node=node_id, action_taken=action
-                    )
+                    exp_payoff[action] = self._traverse_game_tree(cur_state, traverser, depth + 1)
                 self._env_wrapper.load_state_dict(state)
 
             ev = np.sum(exp_payoff * strategy)
@@ -365,8 +349,7 @@ class DeepCFRSolver:
                 return _rew_for_all[traverser]
 
             cur_state = self._env_wrapper.state_dict()
-            ev = self._traverse_game_tree(cur_state, traverser, depth + 1,
-                                        graph=graph, parent_node=node_id, action_taken=sampled_action)
+            ev = self._traverse_game_tree(cur_state, traverser, depth + 1)
             self._env_wrapper.load_state_dict(state)
             return ev
     
@@ -433,14 +416,7 @@ class DeepCFRSolver:
         # Масштабирование суммы как в теории Sampled CFR
         return cum_reward * n_legal / n_actions_to_sample
     
-    def draw_game_tree(self,graph):
-        pos = nx.spring_layout(graph) 
-        labels = nx.get_node_attributes(graph, 'label')
-        plt.figure(figsize=(16, 10))
-        nx.draw(graph, pos, with_labels=True, labels=labels,
-                node_size=2000, node_color='lightblue', font_size=9, font_weight='bold')
-        plt.title("Game Tree Visualization")
-        plt.show()
+
     def solve(self):
         
         for p in range(self._num_players):
@@ -449,11 +425,8 @@ class DeepCFRSolver:
                 start = time.time()
                 self._env_wrapper.reset()
 
-                graph = nx.DiGraph()
-                self._traverse_game_tree(self._root_state, traverser=0, graph=graph)
-                self.draw_game_tree(graph)
-                while True:
-                    time.sleep(1)
+                self._traverse_game_tree(self._root_state, traverser=p)
+
                 #self._traverse_game_tree(self._root_state, p)
 
                 self._logger.info(f"Traverse time:{time.time()-start}")
@@ -475,7 +448,11 @@ class DeepCFRSolver:
             self._logger.info(f"Loss: {loss}")
            
 
-        if len(self._strategy_memories) < self._batch_size_strategy*10:
+
+        for i in range(self._num_players):
+            if len(self._advantage_memories[i]) < self._batch_size_advantage*5:
+                return
+        if len(self._strategy_memories) < self._batch_size_strategy*5:
             return
         self._logger.info("Learn strategy network")
         policy_loss = self._learn_strategy_network()

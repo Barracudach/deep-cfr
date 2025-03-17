@@ -13,12 +13,11 @@ from PokerRL.game.games import NoLimitHoldem,DiscretizedNLHoldem
 class EnvWrapper():
 
 
-    def __init__(self, env, invert_history_order:bool=False):
+    def __init__(self, env):
         assert issubclass(type(env), DiscretizedNLHoldem)
 
         self.env:DiscretizedNLHoldem = env
         self._list_of_obs_this_episode = None
-        self.invert_history_order=invert_history_order
         self.action_count=self.env.N_ACTIONS
     
     def legal_actions(self):
@@ -33,15 +32,11 @@ class EnvWrapper():
         self._list_of_obs_this_episode = []
 
     def _pushback(self, env_obs):
-        if self.invert_history_order:
-            self._list_of_obs_this_episode.insert(0, np.copy(env_obs))
-        else:
-            self._list_of_obs_this_episode.append(np.copy(env_obs))
-    
+        pass
+
     def reset(self, deck_state_dict=None):
         env_obs, rew_for_all_players, done, info = self.env.reset(deck_state_dict=deck_state_dict)
         self._reset_state()
-        self._pushback(env_obs)
 
     def print_obs(self, wrapped_obs):
         assert isinstance(wrapped_obs, np.ndarray)
@@ -57,7 +52,6 @@ class EnvWrapper():
 
     def step(self, action):
         env_obs, rew_for_all_players, done, info = self.env.step(action)
-        self._pushback(env_obs)
         return env_obs, rew_for_all_players, done, info
     
     def get_current_all_obs(self, env_obs=None):
@@ -90,9 +84,6 @@ class EnvWrapper():
         self.reset()
         self._reset_state()  # from .reset() the first obs is in by default
 
-        # fake step in the internal env to gain current rr state
-        for obs in state_seq:
-            self._pushback(env_obs=obs)
 
         assert len(state_seq) == len(self._list_of_obs_this_episode)
 
