@@ -920,7 +920,6 @@ class PokerEnv:
 
         """
         _action_idx = action[0]
-        self.last_action  
         total_to_call = self._get_biggest_bet_out_there_aka_total_to_call()
 
         if _action_idx == Poker.FOLD:
@@ -1308,7 +1307,7 @@ class PokerEnv:
                 p.hand = np.copy(env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.hand])
                 p.hand_rank = env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.hand_rank]
 
-    def get_current_obs_old(self, is_terminal):
+    def get_current_obs(self, is_terminal):
         """
         This function can be useful for manually setting the environment to a desired state and then getting the
         formatted observation from it without actually stepping it.
@@ -1328,7 +1327,7 @@ class PokerEnv:
                         + self._get_board_state()
                         , dtype=np.float32)
     
-    def get_current_obs(self, is_terminal):
+    def get_current_obs1(self, is_terminal):
         obs={
             "players_cards":[self.cards2str(seat.hand) for seat in self.seats],
             "board_cards":self.cards2str(self.board),

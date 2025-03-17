@@ -40,8 +40,6 @@ class AdvantageDataset(Dataset):
  
         dataset = torch.utils.data.TensorDataset(info_states, iterations, samp_regrets, legal_actions)
 
-        dataset = torch.utils.data.TensorDataset(info_states, iterations, samp_regrets, legal_actions)
-
         dataloader = DataLoader(
             dataset,
             batch_size=batch_size,
