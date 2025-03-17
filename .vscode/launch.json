@@ -8,7 +8,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/tree_visualizer.py",
+            "program": "${workspaceFolder}/my_deep_cfr_train.py",
             "console": "integratedTerminal"
         }
     ]

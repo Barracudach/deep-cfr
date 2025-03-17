@@ -1220,8 +1220,8 @@ class PokerEnv:
 
     def state_dict(self):
         env_state_dict = {
-            EnvDictIdxs.preflop_betline:self._preflop_betline,
-            EnvDictIdxs.postflop_betline:self._postflop_betline,
+            EnvDictIdxs.preflop_betline: copy.copy(self._preflop_betline),
+            EnvDictIdxs.postflop_betline: copy.copy(self._postflop_betline),
             EnvDictIdxs.is_evaluating: self.IS_EVALUATING,
             EnvDictIdxs.current_round: self.current_round,  # int by value
             EnvDictIdxs.side_pots: copy.deepcopy(self.side_pots),  # np array
@@ -1269,8 +1269,8 @@ class PokerEnv:
         Returns:
 
         """
-        self._preflop_betline=env_state_dict[EnvDictIdxs.preflop_betline]
-        self._postflop_betline=env_state_dict[EnvDictIdxs.postflop_betline]
+        self._preflop_betline= copy.copy(env_state_dict[EnvDictIdxs.preflop_betline])
+        self._postflop_betline=copy.copy(env_state_dict[EnvDictIdxs.postflop_betline])
         self.IS_EVALUATING = env_state_dict[EnvDictIdxs.is_evaluating]
         self.current_round = env_state_dict[EnvDictIdxs.current_round]
         self.side_pots = copy.deepcopy(env_state_dict[EnvDictIdxs.side_pots])
@@ -1335,6 +1335,7 @@ class PokerEnv:
                         + self._get_board_state()
                         , dtype=np.float32)
     
+
     def get_current_obs(self, is_terminal):
        
 
@@ -1346,11 +1347,13 @@ class PokerEnv:
 
        
         pre_bets= np.array( self._preflop_betline, dtype=np.float32)/100.0
-        post_bets=np.array(self._postflop_betline, dtype=np.float32)/100.0\
+        post_bets=np.array(self._postflop_betline, dtype=np.float32)/100.0
         
+ 
         post_bets = np.pad(post_bets, pad_width=(0,50 -len(post_bets)), mode='constant', constant_values=mask_value),
         pre_bets= np.pad(pre_bets, pad_width=(0,50 - len(pre_bets)), mode='constant', constant_values=mask_value),
         
+        common_bets=np.stack([pre_bets, post_bets])
         cards= np.zeros(shape=(52),dtype="float32")
         
 
@@ -1364,15 +1367,21 @@ class PokerEnv:
             cards[4*card[0]+card[1]]=1
             
         #for table_card in self.:
-        
+        concat = np.concatenate([
+            np.array([self.N_SEATS], dtype=np.float32),
+            stacks,
+            common_bets.reshape(-1), 
+            cards.reshape(-1) 
+        ])
         obs={
             "players_cards":[self.cards2str(seat.hand) for seat in self.seats],
             "board_cards":self.cards2str(self.board),
             "mask_value":mask_value,
             "players_count":self.N_SEATS,
             "stacks":stacks,
-            "bets": np.stack([pre_bets, post_bets]),
-            "cards":cards
+            "bets": common_bets,
+            "cards":cards,
+            "concat":concat
         }
     
 

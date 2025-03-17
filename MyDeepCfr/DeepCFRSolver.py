@@ -2,7 +2,7 @@ import os
 
 
 import numpy as np
-
+import copy
 
 import torch
 import torch.nn as nn
@@ -61,11 +61,9 @@ class DeepCFRSolver:
         self._batch_size_strategy = batch_size_strategy
         self._policy_network_train_steps = policy_network_train_steps
         self._advantage_network_train_steps = advantage_network_train_steps
-        self._policy_network_layers = policy_network_layers
-        self._advantage_network_layers = advantage_network_layers
         self._num_players = len( self._env_wrapper.env.seats)
         self._root_state = self._env_wrapper.state_dict()
-        self._embedding_size = len(self._env_wrapper.get_current_obs())
+        self._embedding_size = len(self._env_wrapper.get_current_obs()["concat"])
         self._num_iterations = num_iterations
         self._num_traversals = num_traversals
         self._reinitialize_advantage_networks = reinitialize_advantage_networks
@@ -109,13 +107,13 @@ class DeepCFRSolver:
         for player in range(self._num_players):
             # Создание основной сети
             self._adv_networks.append(
-                AdvantageNetwork(self._embedding_size, self._advantage_network_layers,
+                AdvantageNetwork(f"adv_net{player}",self._embedding_size,
                                 self._num_actions).to(self.device)
             )
 
             # Создание сети для обучения (если требуется отдельная копия)
             self._adv_networks_train.append(
-                AdvantageNetwork(self._embedding_size, self._advantage_network_layers,
+                AdvantageNetwork(f"adv_net_train{player}",self._embedding_size,
                                 self._num_actions).to(self.device)
             )
 
@@ -159,16 +157,14 @@ class DeepCFRSolver:
             net.load_state_dict(weights["adv_networks"][i])
 
     def _reinitialize_policy_network(self):
-        self._policy_network = PolicyNetwork(self._embedding_size, 
-                                             self._policy_network_layers,self._num_actions).to(self.device)
+        self._policy_network = PolicyNetwork("pol_net", self._embedding_size, self._num_actions).to(self.device)
         self._optimizer_policy = optim.Adam(params=self._policy_network.parameters(), 
                                             lr=self._learning_rate,
                                             weight_decay=self._strat_weight_decay)
         self._loss_policy = nn.MSELoss(reduction='none')
 
     def _reinitialize_advantage_network(self, player):
-        self._adv_networks_train[player] = AdvantageNetwork( self._embedding_size, 
-                                                            self._advantage_network_layers, self._num_actions)
+        self._adv_networks_train[player] = AdvantageNetwork(f"adv_net_train{player}", self._embedding_size, self._num_actions)
         self._optimizer_advantages[player] = optim.Adam(params= self._adv_networks_train[player].parameters(),
                                                          lr=self._learning_rate, 
                                                          weight_decay=self._adv_weight_decay)
@@ -289,6 +285,7 @@ class DeepCFRSolver:
     
 
     def _traverse_game_tree(self, state, traverser, depth=0):
+
         legal_actions_mask = self._env_wrapper.legal_actions_mask()
         obs = self._env_wrapper.get_current_obs()
         current_player = state["current_player"]
@@ -297,7 +294,7 @@ class DeepCFRSolver:
         # Если ход traverser'а
         if current_player == traverser:
             _, strategy = self._adv_networks[traverser].get_matched_regrets(
-                torch.tensor(obs, dtype=torch.float32).to(self.device),
+                torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
 
             exp_payoff = np.zeros_like(strategy, dtype=np.float32)
@@ -315,12 +312,12 @@ class DeepCFRSolver:
             ev = np.sum(exp_payoff * strategy)
             samp_regret = (exp_payoff - ev) * legal_actions_mask
 
-            self._advantage_memories[traverser].add(obs, self._iteration, samp_regret, legal_actions_mask)
+            self._advantage_memories[traverser].add(obs["concat"], self._iteration, samp_regret, legal_actions_mask)
             return ev
 
         else:
             _, strategy = self._adv_networks[current_player].get_matched_regrets(
-                torch.tensor(obs, dtype=torch.float32).to(self.device),
+                torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
 
             probs = strategy
@@ -330,7 +327,7 @@ class DeepCFRSolver:
                 probs = np.ones_like(probs) / len(probs)
 
             sampled_action = np.random.choice(range(self._num_actions), p=probs)
-            self._strategy_memories.add(obs, self._iteration, probs, legal_actions_mask)
+            self._strategy_memories.add(obs["concat"], self._iteration, probs, legal_actions_mask)
 
             _obs, _rew_for_all, _done, _info = self._env_wrapper.step(sampled_action)
             if _done:
@@ -437,7 +434,8 @@ class DeepCFRSolver:
             self._logger.info(f"Loss: {loss}")
            
 
-
+        self._iteration += 1
+        
         for i in range(self._num_players):
             if len(self._advantage_memories[i]) < self._batch_size_advantage*5:
                 return
@@ -448,7 +446,7 @@ class DeepCFRSolver:
         if self._enable_tb:
             self._tensorboard.add_scalar(f"solver{self._solver_idx}/loss/pol_net", policy_loss,self._iteration)
      
-        self._iteration += 1
+       
 
         
 

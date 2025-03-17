@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import os
-from ops import DenseResidualBlock
+from .ops import DenseResidualBlock
 
 class PolicyNetwork(nn.Module):
     def __init__(self, name, observation_space = 64, actions_amount = 5):
