@@ -175,6 +175,7 @@ class PokerEnv:
         
         # only relevant in Limit games
         self.n_raises_this_round = NotImplementedError
+        self.n_make_actions_this_round=0
 
     def _construct_obs_space(self):
         """
@@ -661,6 +662,9 @@ class PokerEnv:
             raise ValueError(self.current_round)
 
     def _next_round(self):
+
+        self.n_make_actions_this_round=0
+
         if self.IS_FIXED_LIMIT_GAME:
             self.n_raises_this_round = 0
 
@@ -706,6 +710,8 @@ class PokerEnv:
             self.current_player.fold()
 
         elif processed_action[0] == Poker.BET_RAISE or processed_action[0] == Poker.MIN_RAISE or processed_action[0] == Poker.ALLIN:
+            
+            
 
             # This happens when someone has fewer chips than minraise and goes all in.
             # The last raiser, if there is one, can't reopen in this case until someone else reraises!
@@ -723,6 +729,8 @@ class PokerEnv:
             self.last_raiser = self.current_player  # leave this line at the end of this function!!
             self.current_player.bet_raise(total_bet_amount=processed_action[1])
 
+            self.n_make_actions_this_round+=1
+
             self.n_actions_this_episode += 1
 
             # If this is a limit poker game, increment the raise counter
@@ -733,6 +741,18 @@ class PokerEnv:
     
         self.last_action = [processed_action[0], processed_action[1], self.current_player.seat_id]
 
+        if self.current_round==0:
+            self._preflop_betline.append(self.last_action[1])
+        else:
+            if processed_action[0] == Poker.FOLD:
+                self._postflop_betline.append(self.last_action[1])
+            else:
+                last_postflop_bet = next((x for x in reversed(self._postflop_betline) if x > 0), 0)
+                cummulative_action=self.last_action[1]
+                if self.n_make_actions_this_round==0:
+                    cummulative_action+=last_postflop_bet
+
+                self._postflop_betline.append(cummulative_action)
         # ______________________________________________________________________________________________________________
         # check if should deal next round, rundown or continue to next step in the episode of the poker game
 
@@ -1288,7 +1308,7 @@ class PokerEnv:
                 p.hand = np.copy(env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.hand])
                 p.hand_rank = env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.hand_rank]
 
-    def get_current_obs(self, is_terminal):
+    def get_current_obs_old(self, is_terminal):
         """
         This function can be useful for manually setting the environment to a desired state and then getting the
         formatted observation from it without actually stepping it.
@@ -1307,6 +1327,26 @@ class PokerEnv:
                         + self._get_player_states_all_players(normalization_sum=normalization_sum) \
                         + self._get_board_state()
                         , dtype=np.float32)
+    
+    def get_current_obs(self, is_terminal):
+        obs={
+            "players_cards":[self.cards2str(seat.hand) for seat in self.seats],
+            "board_cards":self.cards2str(self.board),
+            "net_bets_mask":-999,
+            "net_stacks":[],
+            "net_bets":[],
+            "net_cards":[]
+        }
+        if is_terminal:
+            return obs
+        normalization_sum = float(sum([s.starting_stack_this_episode for s in self.seats])) / self.N_SEATS
+
+      
+
+        
+
+        return obs
+    
 
     def print_obs(self, obs):
         print("______________________________________ Printing _Observation _________________________________________")
@@ -1491,7 +1531,7 @@ class PokerEnv:
                   '___________________________________')
 
             print("Board: ", self.cards2str(self.board))
-
+            print(f"Preflop betline:{self._preflop_betline} Postflop betline:{self._postflop_betline}",)
             print(("Last Action:   player_" + str(self.last_action[2]) + ": " + str(self.last_action[0]) + "|" +
                    str(self.last_action[1])), "       Main_pot: ", str(self.main_pot).rjust(7))
 
@@ -1516,9 +1556,11 @@ class PokerEnv:
             raise ValueError(mode + "is unsupported")
 
     def print_tutorial(self):
+        print("Actions:")
         print("0 \tFold")
         print("1 \tCall")
-        print("2 \tRaise")
+        print("2 \tAllin")
+        print("3 \tMinraise")
         print("If you enter 2 for raise, you will be asked what size you want to raise to TOTAL in case you play a "
               "Poker game with multiple size options")
 

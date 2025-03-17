@@ -47,22 +47,21 @@ def load_policy_network(model_path, input_size, policy_network_layers, num_actio
 
 if __name__ == '__main__':
     game_cls = DiscretizedNLHoldem
-    args = game_cls.ARGS_CLS(n_seats=3,
+    args = game_cls.ARGS_CLS(n_seats=2,
                              bet_sizes_list_as_frac_of_pot=[
-                                 0.2,
-                                 0.5,
-                                 1.0,
-                                 2.0,
-                                 1000.0  # Note that 1000x pot will always be >pot and thereby represents all-in
+                                0.2,
+                                0.5,
+                                1.0,
+                                2.0
                              ],
                              stack_randomization_range=(0, 0,),
-                             starting_stack_sizes_list=[150,24,140],
+                             starting_stack_sizes_list=[14,14],
                              scale_rewards=False
                              )
 
     game = InteractiveGame(env_cls=game_cls,
                            env_args=args,
-                           seats_human_plays_list=[0, 1, 2],
+                           seats_human_plays_list=[0, 1],
                            )
 
     game.start_to_play()

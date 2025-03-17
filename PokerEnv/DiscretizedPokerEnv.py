@@ -62,27 +62,18 @@ class DiscretizedPokerEnv(_PokerEnv):
             return [2, min(max(self.get_effective_stacks()),self.current_player.stack+self.current_player.current_bet)]
         if action_int == 3:
             return [3, min(self._get_current_total_min_raise(),self.current_player.stack+self.current_player.current_bet)]
-        elif action_int > 3:
-            selected = self.get_fraction_of_pot_raise(fraction=self.bet_sizes_list_as_frac_of_pot[action_int - 4],
+        elif action_int >= Poker.BET_RAISE:
+            selected = self.get_fraction_of_pot_raise(fraction=self.bet_sizes_list_as_frac_of_pot[action_int - Poker.BET_RAISE],
                                                       player_that_bets=self.current_player)
 
             if self.uniform_action_interpolation and not self.IS_EVALUATING:
-                # _________________________________________ The maximal amount _________________________________________
-                if action_int == self.N_ACTIONS - 4:  # if highest bet in repertoire
-                    if self.IS_POT_LIMIT_GAME:  # if PL game: max is pot
-                        max_amnt = self.get_fraction_of_pot_raise(fraction=1.0, player_that_bets=self.current_player)
-                    elif self.IS_FIXED_LIMIT_GAME:
-                        raise EnvironmentError("Should not get here with a limit game!")
-                    else:  # if NL game: max is allin
-                        max_amnt = self.current_player.stack + self.current_player.current_bet
-
-                else:  # else, max is the mean of the selected and the next-bigger bet size
-                    bigger = self.get_fraction_of_pot_raise(fraction=self.bet_sizes_list_as_frac_of_pot[action_int - 1],
-                                                            player_that_bets=self.current_player)
-                    max_amnt = int(float(selected + bigger) / 2)
+    
+                bigger = self.get_fraction_of_pot_raise(fraction=self.bet_sizes_list_as_frac_of_pot[action_int - 1],
+                                                        player_that_bets=self.current_player)
+                max_amnt = int(float(selected + bigger) / 2)
 
                 # _________________________________________ The minimal amount _________________________________________
-                if action_int == 2:  # if lowest bet in repertoire, min is minbet
+                if action_int == Poker.BET_RAISE:  # if lowest bet in repertoire, min is minbet
                     min_amnt = self._get_current_total_min_raise()
 
                 else:  # else, min is the mean of the selected and the next-smaller bet size
@@ -92,11 +83,11 @@ class DiscretizedPokerEnv(_PokerEnv):
                     min_amnt = int(float(selected + smaller) / 2)
 
                 if min_amnt >= max_amnt:  # can happen. The sampling would always be the same -> save time.
-                    return [2, min_amnt]
-                return [2, np.random.randint(low=min_amnt, high=max_amnt)]
+                    return [Poker.BET_RAISE, min_amnt]
+                return [Poker.BET_RAISE, np.random.randint(low=min_amnt, high=max_amnt)]
 
             else:
-                return [2, selected]
+                return [Poker.BET_RAISE, selected]
         else:
             raise ValueError(action_int)
 

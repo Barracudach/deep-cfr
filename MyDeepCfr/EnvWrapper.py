@@ -9,7 +9,6 @@ class EnvWrapper():
         assert issubclass(type(env), DiscretizedNLHoldem)
 
         self.env:DiscretizedNLHoldem = env
-        self._list_of_obs_this_episode = None
         self.action_count=self.env.N_ACTIONS
     
     def legal_actions(self):
@@ -20,15 +19,12 @@ class EnvWrapper():
         legal_actions_mask[self.legal_actions()] = 1.0
         return legal_actions_mask
     
-    def _reset_state(self, **kwargs):
-        self._list_of_obs_this_episode = []
 
     def _pushback(self, env_obs):
         pass
 
     def reset(self, deck_state_dict=None):
-        env_obs, rew_for_all_players, done, info = self.env.reset(deck_state_dict=deck_state_dict)
-        self._reset_state()
+        return  self.env.reset(deck_state_dict=deck_state_dict)
 
     def print_obs(self, wrapped_obs):
         assert isinstance(wrapped_obs, np.ndarray)
@@ -43,11 +39,9 @@ class EnvWrapper():
             self.env.print_obs(o)
 
     def step(self, action):
+        self.env.reshuffle_remaining_deck()
         env_obs, rew_for_all_players, done, info = self.env.step(action)
         return env_obs, rew_for_all_players, done, info
-    
-    def get_current_all_obs(self, env_obs=None):
-        return np.array(self._list_of_obs_this_episode, dtype=np.float32)
     
     def get_current_obs(self):
         return self.env.get_current_obs(False)
@@ -58,7 +52,7 @@ class EnvWrapper():
         #     "base": super().state_dict(),
         #     "obs_seq": copy.deepcopy(self._list_of_obs_this_episode)
         # }
-
+    
     def load_state_dict(self, state_dict):
         self.env.load_state_dict(state_dict)
 
