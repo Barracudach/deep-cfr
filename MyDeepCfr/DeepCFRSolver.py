@@ -1,22 +1,13 @@
 import os
-import copy
-from PokerRL.eval.head_to_head.H2HArgs import H2HArgs
-from PokerRL.game.games import NoLimitHoldem,DiscretizedNLHoldem
-import collections
+
 
 import numpy as np
-from PokerRL.game import Poker
-from PokerRL.game._.tree._.nodes import PlayerActionNode
-from PokerRL.rl import rl_util
-from PokerRL.rl.base_cls.EvalAgentBase import EvalAgentBase as _EvalAgentBase
-from PokerRL.rl.errors import UnknownModeError
-import ray
+
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from DeepCFR.workers.la.local import LearnerActor as LocalLearnerActor
 from MyDeepCfr.EnvWrapper import EnvWrapper
 from torch.utils.tensorboard import SummaryWriter
 
@@ -25,9 +16,7 @@ from .Datasets import *
 import logging
 import time
 
-import networkx as nx
-import matplotlib.pyplot as plt
-import uuid
+from PokerEnv.games import DiscretizedNLHoldem
 
 class DeepCFRSolver:
     def __init__(self,
@@ -64,7 +53,7 @@ class DeepCFRSolver:
                                 )
         env= DiscretizedNLHoldem(env_args,lut_holder=DiscretizedNLHoldem.get_lut_holder(),is_evaluating=True)
 
-        self._env_wrapper=EnvWrapper(env,False)
+        self._env_wrapper=EnvWrapper(env)
         self._env_wrapper.reset()
         
       

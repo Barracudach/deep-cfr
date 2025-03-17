@@ -1,14 +1,6 @@
-# Copyright (c) 2019 Eric Steinberger
-
-
-import copy
 
 import numpy as np
-
-from PokerRL.game.PokerEnvStateDictEnums import EnvDictIdxs
-from PokerRL.game._.wrappers._Wrapper import Wrapper
-from PokerRL.game._.rl_env.base.PokerEnv import PokerEnv
-from PokerRL.game.games import NoLimitHoldem,DiscretizedNLHoldem
+from PokerEnv.games import DiscretizedNLHoldem
 
 class EnvWrapper():
 
@@ -70,22 +62,4 @@ class EnvWrapper():
     def load_state_dict(self, state_dict):
         self.env.load_state_dict(state_dict)
 
-    def set_to_public_tree_node_state(self, node):
-        state_seq = []  # will be sorted. [0] is root.
-
-        def add(_node):
-            if _node is not None:
-                if _node.p_id_acting_next != _node.tree.CHANCE_ID:
-                    self.env.load_state_dict(_node.env_state)
-                    state_seq.insert(0, self.env.get_current_obs(is_terminal=False))
-                add(_node.parent)
-
-        add(node)  # will step from node to parent to parent of parent... to root.
-        self.reset()
-        self._reset_state()  # from .reset() the first obs is in by default
-
-
-        assert len(state_seq) == len(self._list_of_obs_this_episode)
-
-        self.env.load_state_dict(node.env_state, blank_private_info=True)
-        assert np.array_equal(node.env_state[EnvDictIdxs.board_2d], self.env.board)
+   

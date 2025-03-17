@@ -2,7 +2,7 @@
 import copy
 
 import numpy as np
-from PokerRL.game.games import DiscretizedNLHoldem 
+from PokerEnv.games import DiscretizedNLHoldem 
 from MyDeepCfr.Networks import PolicyNetwork
 import torch
 

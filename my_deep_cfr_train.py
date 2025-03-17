@@ -1,5 +1,5 @@
 from MyDeepCfr.DeepCFRSolver import DeepCFRSolver
-from PokerRL.game.games import DiscretizedNLHoldem
+from PokerEnv.games import DiscretizedNLHoldem
 from MyDeepCfr.EnvWrapper import EnvWrapper
 import ray
 

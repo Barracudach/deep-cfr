@@ -8,7 +8,7 @@
             "name": "Python Debugger: Current File",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/test_poker_rl.py",
+            "program": "${workspaceFolder}/my_deep_cfr_train.py",
             "console": "integratedTerminal"
         }
     ]
