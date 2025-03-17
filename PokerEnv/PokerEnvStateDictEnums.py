@@ -22,7 +22,8 @@ class EnvDictIdxs:
     n_raises_this_round = "n_raises_this_round"
 
     is_evaluating = "is_evaluating"
-
+    preflop_betline="preflop_betline"
+    postflop_betline="preflop_betline"
 
 class PlayerDictIdxs:
     hand = "hand"

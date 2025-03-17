@@ -189,7 +189,7 @@ class AdvantageNetwork(nn.Module):
 
         # Get advantages from the network
         advs = self((info_state, legal_actions_mask))
-
+        
         # Apply ReLU to get positive advantages
         advantages = torch.relu(advs)
 

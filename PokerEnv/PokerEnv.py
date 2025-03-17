@@ -1161,6 +1161,9 @@ class PokerEnv:
         for p in self.seats:
             p.reset()
 
+        self._preflop_betline=[]
+        self._postflop_betline=[]
+
         # reset deck
         self.deck.reset()
 
@@ -1217,6 +1220,8 @@ class PokerEnv:
 
     def state_dict(self):
         env_state_dict = {
+            EnvDictIdxs.preflop_betline:self._preflop_betline,
+            EnvDictIdxs.postflop_betline:self._postflop_betline,
             EnvDictIdxs.is_evaluating: self.IS_EVALUATING,
             EnvDictIdxs.current_round: self.current_round,  # int by value
             EnvDictIdxs.side_pots: copy.deepcopy(self.side_pots),  # np array
@@ -1264,6 +1269,8 @@ class PokerEnv:
         Returns:
 
         """
+        self._preflop_betline=env_state_dict[EnvDictIdxs.preflop_betline]
+        self._postflop_betline=env_state_dict[EnvDictIdxs.postflop_betline]
         self.IS_EVALUATING = env_state_dict[EnvDictIdxs.is_evaluating]
         self.current_round = env_state_dict[EnvDictIdxs.current_round]
         self.side_pots = copy.deepcopy(env_state_dict[EnvDictIdxs.side_pots])
@@ -1290,7 +1297,7 @@ class PokerEnv:
 
         if self.IS_FIXED_LIMIT_GAME:
             self.n_raises_this_round = env_state_dict[EnvDictIdxs.n_raises_this_round]
-
+        
         for p in self.seats:
             p.seat_id = env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.seat_id]
             p.stack = env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.stack]
@@ -1307,7 +1314,7 @@ class PokerEnv:
                 p.hand = np.copy(env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.hand])
                 p.hand_rank = env_state_dict[EnvDictIdxs.seats][p.seat_id][PlayerDictIdxs.hand_rank]
 
-    def get_current_obs(self, is_terminal):
+    def get_current_obs_old(self, is_terminal):
         """
         This function can be useful for manually setting the environment to a desired state and then getting the
         formatted observation from it without actually stepping it.
@@ -1319,6 +1326,7 @@ class PokerEnv:
             np.ndarray: current observation as returned by the last env.step() call.
 
         """
+        
         if is_terminal:
             return np.zeros(shape=self.observation_space.shape, dtype=np.float32)  # terminal is all zero
         normalization_sum = float(sum([s.starting_stack_this_episode for s in self.seats])) / self.N_SEATS
@@ -1327,22 +1335,46 @@ class PokerEnv:
                         + self._get_board_state()
                         , dtype=np.float32)
     
-    def get_current_obs1(self, is_terminal):
+    def get_current_obs(self, is_terminal):
+       
+
+        #normalization_sum = float(sum([s.starting_stack_this_episode for s in self.seats])) / self.N_SEATS
+
+        mask_value=0
+        stacks = np.array([seat.stack / 100.0 for seat in self.seats], dtype=np.float32)
+        stacks = np.pad(stacks, (0, max(0, 3 - len(stacks))), mode='constant')
+
+       
+        pre_bets= np.array( self._preflop_betline, dtype=np.float32)/100.0
+        post_bets=np.array(self._postflop_betline, dtype=np.float32)/100.0\
+        
+        post_bets = np.pad(post_bets, pad_width=(0,50 -len(post_bets)), mode='constant', constant_values=mask_value),
+        pre_bets= np.pad(pre_bets, pad_width=(0,50 - len(pre_bets)), mode='constant', constant_values=mask_value),
+        
+        cards= np.zeros(shape=(52),dtype="float32")
+        
+
+        for board_card in self.board:
+            if board_card[0]==-127:
+                break
+            cards[4*board_card[0]+board_card[1]]=1
+
+        
+        for card in self.current_player.hand:
+            cards[4*card[0]+card[1]]=1
+            
+        #for table_card in self.:
+        
         obs={
             "players_cards":[self.cards2str(seat.hand) for seat in self.seats],
             "board_cards":self.cards2str(self.board),
-            "net_bets_mask":-999,
-            "net_stacks":[],
-            "net_bets":[],
-            "net_cards":[]
+            "mask_value":mask_value,
+            "players_count":self.N_SEATS,
+            "stacks":stacks,
+            "bets": np.stack([pre_bets, post_bets]),
+            "cards":cards
         }
-        if is_terminal:
-            return obs
-        normalization_sum = float(sum([s.starting_stack_this_episode for s in self.seats])) / self.N_SEATS
-
-      
-
-        
+    
 
         return obs
     
