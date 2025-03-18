@@ -124,6 +124,9 @@ class DeepCFRSolver:
             self._optimizer_advantages.append(
                 optim.Adam(self._adv_networks_train[player].parameters(), lr=learning_rate)
             )
+        
+        for i in range(1,self._num_players):
+            self._adv_networks[i].load_state_dict(self._adv_networks[0].state_dict())
 
         self._strategy_memories = StrategyDataset(memory_capacity)
         self._advantage_memories = [
@@ -196,6 +199,7 @@ class DeepCFRSolver:
 
             preds = model((info_states, legal_actions))
             sample_weight = (iterations / self._iteration).unsqueeze(1).to(self.device)
+
             main_loss:torch.Tensor = loss_func(preds, samp_regrets)*sample_weight
             main_loss=main_loss.mean()
 

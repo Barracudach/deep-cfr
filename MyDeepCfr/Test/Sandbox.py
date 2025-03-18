@@ -75,7 +75,7 @@ class Sandbox:
                     legal_actions_mask[self._env.get_legal_actions()] = 1.0
                   
                     actions_prob = self._eval_agent.get_strategy(
-                        torch.tensor(self._env.get_current_obs(False), dtype=torch.float32),
+                        torch.tensor(self._env.get_current_obs(False)["concat"], dtype=torch.float32),
                         torch.tensor(legal_actions_mask, dtype=torch.float32))
                     action_idx=np.argmax(actions_prob)
                     strategy=self._env._get_fixed_action(self._env._get_env_adjusted_action_formulation(action_int=action_idx))
