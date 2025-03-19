@@ -14,6 +14,15 @@ class DenseResidualBlock(nn.Module):
         else:
             self.shortcut = nn.Identity()
 
+        # Инициализация весов и смещений нулями
+        nn.init.zeros_(self.dense1.weight)
+        nn.init.zeros_(self.dense1.bias)
+        nn.init.zeros_(self.dense2.weight)
+        nn.init.zeros_(self.dense2.bias)
+        if isinstance(self.shortcut, nn.Linear):
+            nn.init.zeros_(self.shortcut.weight)
+            nn.init.zeros_(self.shortcut.bias)
+
     def forward(self, x):
         shortcut = self.shortcut(x)
 
@@ -28,4 +37,5 @@ class DenseResidualBlock(nn.Module):
         x = self.layer_norm(x)
 
         return x
+
 

@@ -11,7 +11,7 @@ args = DiscretizedNLHoldem.ARGS_CLS(n_seats=2,
                                 2.0
                             ],
                             stack_randomization_range=(0, 0,),
-                            starting_stack_sizes_list=[20,14],
+                            starting_stack_sizes_list=[14,14],
                             scale_rewards=False
                             )
 env = DiscretizedNLHoldem(env_args=args, is_evaluating=True, lut_holder=DiscretizedNLHoldem.get_lut_holder())

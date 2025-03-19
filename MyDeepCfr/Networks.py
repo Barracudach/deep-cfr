@@ -60,6 +60,9 @@ class AdvantageNetwork(nn.Module):
             nn.Linear(128, self.actions_amount)
         )
 
+        nn.init.zeros_(self.encoder[-1].weight)
+        nn.init.zeros_(self.encoder[-1].bias)
+        
     def forward(self, x):
         x, mask = x
         return self.encoder(x) * mask

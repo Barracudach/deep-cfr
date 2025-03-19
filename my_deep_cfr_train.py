@@ -21,7 +21,7 @@ if __name__=="__main__":
                 ],
                 starting_stack_sizes_list=[40,40],
                 num_iterations=10,
-                num_traversals=50,
+                num_traversals=100,
                 learning_rate=1e-3,
                 batch_size_advantage=1000,
                 batch_size_strategy=5000,

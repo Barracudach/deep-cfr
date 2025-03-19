@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import copy
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -316,7 +317,7 @@ class DeepCFRSolver:
             ev = np.sum(exp_payoff * strategy)
             samp_regret = (exp_payoff - ev) * legal_actions_mask
 
-            self._advantage_memories[traverser].add(obs["concat"], self._iteration, samp_regret, legal_actions_mask)
+            self._advantage_memories[traverser].add(obs["concat"], int(self._iteration), samp_regret, legal_actions_mask)
             return ev
 
         else:
@@ -331,9 +332,11 @@ class DeepCFRSolver:
                 probs = np.ones_like(probs) / len(probs)
 
             sampled_action = np.random.choice(range(self._num_actions), p=probs)
-            self._strategy_memories.add(obs["concat"], self._iteration, probs, legal_actions_mask)
-
+            self._strategy_memories.add(obs["concat"],  int(self._iteration), probs, legal_actions_mask)
+           
             _obs, _rew_for_all, _done, _info = self._env_wrapper.step(sampled_action)
+            self._action_counts[traverser][sampled_action]+=1
+
             if _done:
                 self._env_wrapper.load_state_dict(state)
                 return _rew_for_all[traverser]
@@ -409,6 +412,8 @@ class DeepCFRSolver:
 
     def solve(self):
         
+
+        self._action_counts=[[0]*self._num_actions for i in range(self._num_players)]
         for p in range(self._num_players):
             for traverse_iter in range(self._num_traversals):
                 self._logger.info(f"Traverse {p} player. Iter: {traverse_iter}/{self._num_traversals}")
@@ -436,7 +441,19 @@ class DeepCFRSolver:
             if self._enable_tb:
                 self._tensorboard.add_scalar(f"solver{self._solver_idx}/loss/adv_net{p}", loss,self._iteration)
             self._logger.info(f"Loss: {loss}")
-           
+        
+        for i in range(self._num_players):
+            fig, ax = plt.subplots()
+            bars = ax.bar(range(len(self._action_counts[i])), self._action_counts[i])
+            ax.set_xlabel('Action')
+            ax.set_ylabel('Counts')
+            ax.set_title(f'Actions Distribution (solver {self._solver_idx}, net{i})')
+
+            self._tensorboard.add_figure(
+                f"solver{self._solver_idx}/actions/net{i}",
+                fig,
+                self._iteration
+            )
 
         self._iteration += 1
         

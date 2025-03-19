@@ -11,12 +11,15 @@ class GameTreeVisualizer:
         self.node_color='lightblue'
 
 
-    def add_node(self, depth, player, action_taken=None, reward=None,board=""):
+    def add_node(self, depth, player, action_taken=None, reward=None,board="",player_hands=""):
         node_id = str(uuid.uuid4())
         label = f"d{depth}|P{player}"
         if reward is not None:
             label += f"\nR={reward:.2f}"
-        label+=f"\nB:{board}"
+        if depth==0:
+            label+=f"\nH:{player_hands}"
+        else:
+            label+=f"\nB:{board}"
         cur_color=self.node_color
         if depth==0:
             cur_color='red'
@@ -55,8 +58,12 @@ class GameTreeVisualizer:
     def traverse_full_tree(self, state, env_wrapper, depth=0, parent_node=None, action_taken=None):
         current_player = state["current_player"]
 
-        
-        node_id = self.add_node(depth, current_player, action_taken,board=str(env_wrapper.get_current_obs()['board_cards']))
+        node_id = self.add_node(depth,
+                                current_player,
+                                action_taken,
+                                board=str(env_wrapper.get_current_obs()['board_cards']),
+                                player_hands=str(env_wrapper.get_current_obs()['players_cards'])
+                                )
         if parent_node is not None:
             self.add_edge(parent_node, node_id, action_label=action_taken)
 

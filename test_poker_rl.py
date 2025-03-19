@@ -29,7 +29,7 @@ if __name__ == '__main__':
                                  0.2,
                                  0.5,
                                  1.0,
-                                 2.0 # Note that 1000x pot will always be >pot and thereby represents all-in
+                                 2.0 # Note th1at 1000x pot will always be >pot and thereby represents all-in
                              ],
                              stack_randomization_range=(0, 0,),
                              starting_stack_sizes_list=[40,40],
@@ -55,7 +55,7 @@ if __name__ == '__main__':
 #                                 2.0
 #                              ],
 #                              stack_randomization_range=(0, 0,),
-#                              starting_stack_sizes_list=[40,40],
+#                              starting_stack_sizes_list=[15,15],
 #                              scale_rewards=False
 #                              )
 

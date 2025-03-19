@@ -123,7 +123,7 @@ class DiscretizedPokerEnv(_PokerEnv):
             if self._get_fixed_action(action=_a)[0] == a_int:
                 legal_actions.append(a_int)
 
-        
+        passed_action=[]
         # since raises are ascending in the list, we can simply loop and break
         for a in range(2, self.N_ACTIONS):  # only loops through raises
             adj_a = self._get_env_adjusted_action_formulation(action_int=a) # берет реально посчитанное действие
@@ -135,6 +135,10 @@ class DiscretizedPokerEnv(_PokerEnv):
             if adj_a[1] < fixed_a[1] or adj_a[1]>self.get_effective_stacks()[self.current_player.seat_id]:
                 continue
 
+            if fixed_a[1] in passed_action:
+                continue
+
+            passed_action.append(fixed_a[1])
             legal_actions.append(a)  # this action might be modified by env, but is legal and unique -> append
 
             if adj_a[1] > fixed_a[1]:  # if the raise was too big, an even bigger one will yield the same result
