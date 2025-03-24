@@ -26,10 +26,10 @@ if __name__ == '__main__':
     seats_human_plays_list = [0]  # Пользователь играет за место 0
     args = DiscretizedNLHoldem.ARGS_CLS(n_seats=2,
                              bet_sizes_list_as_frac_of_pot=[
-                                 0.2,
-                                 0.5,
-                                 1.0,
-                                 2.0 # Note th1at 1000x pot will always be >pot and thereby represents all-in
+                                #  0.2,
+                                #  0.5,
+                                #  1.0,
+                                #  2.0 # Note th1at 1000x pot will always be >pot and thereby represents all-in
                              ],
                              stack_randomization_range=(0, 0,),
                              starting_stack_sizes_list=[40,40],

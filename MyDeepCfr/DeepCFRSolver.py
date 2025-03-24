@@ -3,6 +3,7 @@ import os
 
 import numpy as np
 import copy
+import matplotlib
 import matplotlib.pyplot as plt
 
 import torch
@@ -25,16 +26,13 @@ class DeepCFRSolver:
                n_seats,
                bet_sizes_list_as_frac_of_pot,
                starting_stack_sizes_list,
-               policy_network_layers=(256, 256),
-               advantage_network_layers=(128, 128),
-               num_iterations: int = 100,
                num_traversals: int = 100,
                learning_rate: float = 1e-3,
                batch_size_advantage: int = 2048,
                batch_size_strategy: int = 2048,
                memory_capacity: int = int(1e4),
-               policy_network_train_steps: int = 5000,
-               advantage_network_train_steps: int = 750,
+               policy_epochs: int = 5,
+               advantage_epochs: int = 5,
                reinitialize_advantage_networks: bool = False,
                save_strategy_memories: str = False,
                adv_weight_decay=0.01,
@@ -60,12 +58,10 @@ class DeepCFRSolver:
       
         self._batch_size_advantage = batch_size_advantage
         self._batch_size_strategy = batch_size_strategy
-        self._policy_network_train_steps = policy_network_train_steps
-        self._advantage_network_train_steps = advantage_network_train_steps
+        self._policy_epochs = policy_epochs
+        self._advantage_epochs = advantage_epochs
         self._num_players = len( self._env_wrapper.env.seats)
-        self._root_state = self._env_wrapper.state_dict()
         self._embedding_size = len(self._env_wrapper.get_current_obs()["concat"])
-        self._num_iterations = num_iterations
         self._num_traversals = num_traversals
         self._reinitialize_advantage_networks = reinitialize_advantage_networks
         self._num_actions = self._env_wrapper.env.N_ACTIONS
@@ -83,6 +79,7 @@ class DeepCFRSolver:
         self._depth_after_which_one=10
         self._n_actions_traverser_samples=None
 
+        matplotlib.use('Agg')
         if self._enable_tb:
             self._tensorboard = SummaryWriter(f"./tensorboard/")
 
@@ -118,7 +115,6 @@ class DeepCFRSolver:
                                 self._num_actions).to(self.device)
             )
 
-            # Функция потерь (Mean Squared Error)
             self._loss_advantages.append(nn.MSELoss(reduction='none'))
 
             # Оптимизатор (Adam)
@@ -131,17 +127,19 @@ class DeepCFRSolver:
 
         self._strategy_memories = StrategyDataset(memory_capacity)
         self._advantage_memories = [
-            AdvantageDataset(memory_capacity) for _ in range(self._num_players)
+            AdvantageDataset(int(memory_capacity/2)) for _ in range(self._num_players)
         ]
 
         self._players_steps=[0]*self._num_players
+
+        self._logger.info(f"Loading networks...")
         for i in range(self._num_players):
             self.load_network(self._adv_networks[i], self._adv_net_name+str(i))
             self._adv_networks_train[i].load_state_dict(
                 self._adv_networks[i].state_dict()
             )   
-        self._logger.info(f"Loading networks...")
         self.load_network(self._policy_network, self._pol_net_name)
+        
         self._logger.info(f"Loading memory state...")
         self.load_memory_state()
 
@@ -163,58 +161,56 @@ class DeepCFRSolver:
     def _reinitialize_policy_network(self):
         self._policy_network = PolicyNetwork("pol_net", self._embedding_size, self._num_actions).to(self.device)
         self._optimizer_policy = optim.Adam(params=self._policy_network.parameters(), 
-                                            lr=self._learning_rate,
-                                            weight_decay=self._strat_weight_decay)
+                                            lr=self._learning_rate)
         self._loss_policy = nn.MSELoss(reduction='none')
 
     def _reinitialize_advantage_network(self, player):
-        self._adv_networks_train[player] = AdvantageNetwork(f"adv_net_train{player}", self._embedding_size, self._num_actions)
+        self._adv_networks_train[player] = AdvantageNetwork(f"adv_net_train{player}", self._embedding_size, self._num_actions).to(self.device)
         self._optimizer_advantages[player] = optim.Adam(params= self._adv_networks_train[player].parameters(),
-                                                         lr=self._learning_rate, 
-                                                         weight_decay=self._adv_weight_decay)
+                                                         lr=self._learning_rate)
         
-            
     def _learn_advantage_network(self, player):
-       
 
         dataloader = self._advantage_memories[player].get_dataloader(
             batch_size=self._batch_size_advantage,
             shuffle=True,
         )
 
+        model: AdvantageNetwork = self._adv_networks_train[player]
+        optimizer: optim.Adam = self._optimizer_advantages[player]
+        loss_func: nn.MSELoss = self._loss_advantages[player]
+
         total_loss = 0.0
-        for batch in dataloader:
-            info_states, iterations, samp_regrets, legal_actions = batch
+ 
+        for epoch in range(self._advantage_epochs):
+            total_loss=0.0
+            for batch in dataloader:
+                info_states, iterations, samp_regrets, legal_actions = batch
 
-            info_states = info_states.to(self.device)
-            samp_regrets = samp_regrets.to(self.device)
-            legal_actions = legal_actions.to(self.device)
+                info_states = info_states.to(self.device)
+                samp_regrets = samp_regrets.to(self.device)
+                legal_actions = legal_actions.to(self.device)
 
-   
-            model:AdvantageNetwork = self._adv_networks_train[player]
-            optimizer:optim.Adam = self._optimizer_advantages[player]
-            loss_func:nn.MSELoss=self._loss_advantages[player]
+                optimizer.zero_grad()
+                model.train()
 
-            optimizer.zero_grad()
-            model.train()
+                preds = model((info_states, legal_actions))
+                sample_weight = (iterations*2 / self._iteration).unsqueeze(1).to(self.device)
 
-            preds = model((info_states, legal_actions))
-            sample_weight = (iterations / self._iteration).unsqueeze(1).to(self.device)
+                main_loss: torch.Tensor = loss_func(preds, samp_regrets) * sample_weight
+                main_loss = main_loss.mean()
 
-            main_loss:torch.Tensor = loss_func(preds, samp_regrets)*sample_weight
-            main_loss=main_loss.mean()
-
-            main_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            total_loss += main_loss.item()
+                main_loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                total_loss += main_loss.item()
+            
 
         self._adv_networks[player].load_state_dict(
             self._adv_networks_train[player].state_dict()
         )
 
         return total_loss / len(dataloader)
-    
 
     def _learn_strategy_network(self):
 
@@ -222,32 +218,35 @@ class DeepCFRSolver:
             batch_size=self._batch_size_strategy,
             shuffle=True
         )
+        model:AdvantageNetwork = self._policy_network
+        optimizer:optim.Adam = self._optimizer_policy
+        loss_func:nn.MSELoss=self._loss_policy
 
         total_loss = 0.0
-        for batch in dataloader:
-            info_states, iterations, strategy, legal_actions = batch
+        for epoch in range(self._policy_epochs):
+            total_loss=0.0
+            for batch in dataloader:
+                info_states, iterations, strategy, legal_actions = batch
+                
+                info_states = info_states.to(self.device)
+                strategy = strategy.to(self.device)
+                legal_actions = legal_actions.to(self.device)
+
             
-            info_states = info_states.to(self.device)
-            strategy = strategy.to(self.device)
-            legal_actions = legal_actions.to(self.device)
 
-            model:AdvantageNetwork = self._policy_network
-            optimizer:optim.Adam = self._optimizer_policy
-            loss_func:nn.MSELoss=self._loss_policy
+                optimizer.zero_grad()
+                model.train()
 
-            optimizer.zero_grad()
-            model.train()
+                preds = model((info_states, legal_actions))
 
-            preds = model((info_states, legal_actions))
+                sample_weight = (iterations*2 / self._iteration).unsqueeze(1).to(self.device)
+                main_loss:torch.Tensor = loss_func(preds, strategy)*sample_weight
+                main_loss=main_loss.mean()
 
-            sample_weight = (iterations / self._iteration).unsqueeze(1).to(self.device)
-            main_loss:torch.Tensor = loss_func(preds, strategy)*sample_weight
-            main_loss=main_loss.mean()
-
-            main_loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            total_loss += main_loss.item()
+                main_loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                total_loss += main_loss.item()
 
         return total_loss / len(dataloader)
 
@@ -295,12 +294,11 @@ class DeepCFRSolver:
         obs = self._env_wrapper.get_current_obs()
         current_player = state["current_player"]
 
-
-        # Если ход traverser'а
         if current_player == traverser:
             _, strategy = self._adv_networks[traverser].get_matched_regrets(
                 torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
+
 
             exp_payoff = np.zeros_like(strategy, dtype=np.float32)
 
@@ -314,10 +312,20 @@ class DeepCFRSolver:
                     exp_payoff[action] = self._traverse_game_tree(cur_state, traverser, depth + 1)
                 self._env_wrapper.load_state_dict(state)
 
+        
             ev = np.sum(exp_payoff * strategy)
             samp_regret = (exp_payoff - ev) * legal_actions_mask
 
+            # #norm
+            # max_abs_val = max(np.max(np.abs(exp_payoff)), 1.0)
+            # normalized_regret=samp_regret/max_abs_val
+            # clipped_regret = np.clip(normalized_regret, -10.0, 10.0)
+            # scale_factor = np.sqrt(self._iteration) if self._iteration > 1 else 1.0
+
+
             self._advantage_memories[traverser].add(obs["concat"], int(self._iteration), samp_regret, legal_actions_mask)
+
+            #self._strategy_memories.add(obs["concat"], int(self._iteration), probs, legal_actions_mask)
             return ev
 
         else:
@@ -331,7 +339,9 @@ class DeepCFRSolver:
             else:
                 probs = np.ones_like(probs) / len(probs)
 
+            #probs=legal_actions_mask/np.sum(legal_actions_mask)
             sampled_action = np.random.choice(range(self._num_actions), p=probs)
+
             self._strategy_memories.add(obs["concat"],  int(self._iteration), probs, legal_actions_mask)
            
             _obs, _rew_for_all, _done, _info = self._env_wrapper.step(sampled_action)
@@ -409,26 +419,21 @@ class DeepCFRSolver:
         # Масштабирование суммы как в теории Sampled CFR
         return cum_reward * n_legal / n_actions_to_sample
     
-
+ 
     def solve(self):
-        
-
-        self._action_counts=[[0]*self._num_actions for i in range(self._num_players)]
+        self._action_counts=[[0]*self._num_actions for _ in range(self._num_players)]
         for p in range(self._num_players):
+            self._logger.info(f"Traverse {p} player")
+            start = time.time()
             for traverse_iter in range(self._num_traversals):
-                self._logger.info(f"Traverse {p} player. Iter: {traverse_iter}/{self._num_traversals}")
-                start = time.time()
                 self._env_wrapper.reset()
+                root_state = self._env_wrapper.state_dict()
+                self._traverse_game_tree(root_state, traverser=p)
 
-                self._traverse_game_tree(self._root_state, traverser=p)
-
-                #self._traverse_game_tree(self._root_state, p)
-
-                self._logger.info(f"Traverse time:{time.time()-start}")
-                if self._enable_tb:
-                    self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/adv{p}", len(self._advantage_memories[p]) , self._players_steps[p])
-                    self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/pol", len(self._strategy_memories) , self._players_steps[p])
-                self._players_steps[p]+=1
+            if self._enable_tb:
+                self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/adv{p}", len(self._advantage_memories[p]) ,self._iteration)
+                self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/pol", len(self._strategy_memories) ,self._iteration)
+            self._logger.info(f"Traverse time:{time.time()-start}")
 
             if len(self._advantage_memories[p]) < self._batch_size_advantage*5:
                 continue

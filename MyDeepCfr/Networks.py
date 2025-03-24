@@ -60,7 +60,7 @@ class AdvantageNetwork(nn.Module):
             nn.Linear(128, self.actions_amount)
         )
 
-        nn.init.zeros_(self.encoder[-1].weight)
+        nn.init.xavier_uniform_(self.encoder[-1].weight)
         nn.init.zeros_(self.encoder[-1].bias)
         
     def forward(self, x):
@@ -97,6 +97,7 @@ class AdvantageNetwork(nn.Module):
             matched_regrets = legal_actions_mask / legal_actions_mask.sum()
 
         return advantages.squeeze(0).cpu().numpy(), matched_regrets.squeeze(0).cpu().numpy()
+    
     def save(self):
         os.makedirs(f"./checkpoints", exist_ok=True)
         torch.save({'net': self.state_dict()}, f"./checkpoints/{self.name}.pth")
