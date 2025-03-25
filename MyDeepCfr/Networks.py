@@ -68,7 +68,7 @@ class AdvantageNetwork(nn.Module):
         return self.encoder(x) * mask
 
     @torch.no_grad()
-    def get_matched_regrets(self, info_state: torch.Tensor, legal_actions_mask: torch.Tensor):
+    def get_matched_regrets(self, info_state: torch.Tensor, legal_actions_mask: torch.Tensor, epsilon=1e-6):
         """
         Calculate regret matching.
         Args:
@@ -82,10 +82,10 @@ class AdvantageNetwork(nn.Module):
         legal_actions_mask = legal_actions_mask.unsqueeze(0)
 
         # Get advantages from the network
-        advantages = self.forward((info_state, legal_actions_mask))
+        raw_advantages = self.forward((info_state, legal_actions_mask))
 
         # Apply ReLU to get positive advantages
-        advantages = torch.relu(advantages)
+        advantages = torch.relu(raw_advantages)
 
         # Sum of positive advantages
         summed_regret = torch.sum(advantages, dim=1, keepdim=True)
@@ -94,9 +94,15 @@ class AdvantageNetwork(nn.Module):
         if summed_regret.item() > 0:
             matched_regrets = advantages / summed_regret
         else:
-            matched_regrets = legal_actions_mask / legal_actions_mask.sum()
+            # fallback: выбрать легальное действие с наибольшим "сырым" регретом
+            masked_raw = raw_advantages.clone()
+            masked_raw[legal_actions_mask == 0] = -float('inf')
+            best_action = torch.argmax(masked_raw, dim=1, keepdim=True)
 
-        return advantages.squeeze(0).cpu().numpy(), matched_regrets.squeeze(0).cpu().numpy()
+            matched_regrets = torch.zeros_like(raw_advantages)
+            matched_regrets.scatter_(1, best_action, 1.0)
+
+        return raw_advantages.squeeze(0).cpu().numpy(), matched_regrets.squeeze(0).cpu().numpy()
     
     def save(self):
         os.makedirs(f"./checkpoints", exist_ok=True)

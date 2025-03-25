@@ -289,7 +289,6 @@ class DeepCFRSolver:
     
 
     def _traverse_game_tree(self, state, traverser, depth=0):
-
         legal_actions_mask = self._env_wrapper.legal_actions_mask()
         obs = self._env_wrapper.get_current_obs()
         current_player = state["current_player"]
@@ -299,33 +298,27 @@ class DeepCFRSolver:
                 torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
 
-
             exp_payoff = np.zeros_like(strategy, dtype=np.float32)
 
-            for action in self._env_wrapper.legal_actions():
+            for i,action in enumerate(self._env_wrapper.legal_actions()):
                 _obs, _rew_for_all, _done, _info = self._env_wrapper.step(action)
-
+                
                 if _done:
+                    # if action==0:
+                    #     exp_payoff[action]=0
+                    # else:
                     exp_payoff[action] = _rew_for_all[traverser]
                 else:
                     cur_state = self._env_wrapper.state_dict()
                     exp_payoff[action] = self._traverse_game_tree(cur_state, traverser, depth + 1)
                 self._env_wrapper.load_state_dict(state)
 
-        
+
             ev = np.sum(exp_payoff * strategy)
             samp_regret = (exp_payoff - ev) * legal_actions_mask
 
-            # #norm
-            # max_abs_val = max(np.max(np.abs(exp_payoff)), 1.0)
-            # normalized_regret=samp_regret/max_abs_val
-            # clipped_regret = np.clip(normalized_regret, -10.0, 10.0)
-            # scale_factor = np.sqrt(self._iteration) if self._iteration > 1 else 1.0
-
-
             self._advantage_memories[traverser].add(obs["concat"], int(self._iteration), samp_regret, legal_actions_mask)
 
-            #self._strategy_memories.add(obs["concat"], int(self._iteration), probs, legal_actions_mask)
             return ev
 
         else:
@@ -339,16 +332,17 @@ class DeepCFRSolver:
             else:
                 probs = np.ones_like(probs) / len(probs)
 
-            #probs=legal_actions_mask/np.sum(legal_actions_mask)
             sampled_action = np.random.choice(range(self._num_actions), p=probs)
+            self._strategy_memories.add(obs["concat"], int(self._iteration), probs, legal_actions_mask)
 
-            self._strategy_memories.add(obs["concat"],  int(self._iteration), probs, legal_actions_mask)
-           
             _obs, _rew_for_all, _done, _info = self._env_wrapper.step(sampled_action)
-            self._action_counts[traverser][sampled_action]+=1
+            self._action_counts[traverser][sampled_action] += 1
 
             if _done:
                 self._env_wrapper.load_state_dict(state)
+                # if sampled_action==0:
+                #     return 0
+                # else:
                 return _rew_for_all[traverser]
 
             cur_state = self._env_wrapper.state_dict()
@@ -428,6 +422,7 @@ class DeepCFRSolver:
             for traverse_iter in range(self._num_traversals):
                 self._env_wrapper.reset()
                 root_state = self._env_wrapper.state_dict()
+                #print("_________________________________________")
                 self._traverse_game_tree(root_state, traverser=p)
 
             if self._enable_tb:
@@ -435,7 +430,7 @@ class DeepCFRSolver:
                 self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/pol", len(self._strategy_memories) ,self._iteration)
             self._logger.info(f"Traverse time:{time.time()-start}")
 
-            if len(self._advantage_memories[p]) < self._batch_size_advantage*5:
+            if len(self._advantage_memories[p]) < self._batch_size_advantage:
                 continue
             
             if self._reinitialize_advantage_networks:
@@ -463,9 +458,9 @@ class DeepCFRSolver:
         self._iteration += 1
         
         for i in range(self._num_players):
-            if len(self._advantage_memories[i]) < self._batch_size_advantage*5:
+            if len(self._advantage_memories[i]) < self._batch_size_advantage:
                 return
-        if len(self._strategy_memories) < self._batch_size_strategy*5:
+        if len(self._strategy_memories) < self._batch_size_strategy:
             return
         self._logger.info("Learn strategy network")
         policy_loss = self._learn_strategy_network()

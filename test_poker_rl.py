@@ -10,12 +10,12 @@ from PokerEnv.InteractiveGame import InteractiveGame
 from PokerEnv.games import DiscretizedNLHoldem 
 
 import torch
-from MyDeepCfr.Networks import PolicyNetwork
+from MyDeepCfr.Networks import PolicyNetwork, AdvantageNetwork
 from MyDeepCfr.Test.Sandbox import *
 
 # Загрузка модели
 def load_policy_network(model_path, input_size, num_actions):
-    model = PolicyNetwork("pol_net",input_size, num_actions)
+    model = AdvantageNetwork("pol_net",input_size, num_actions)
     model.load_state_dict(torch.load(model_path)["net"])
     model.eval()  # Переключение в режим оценки
     return model
@@ -23,7 +23,7 @@ def load_policy_network(model_path, input_size, num_actions):
 if __name__ == '__main__':
     
  
-    seats_human_plays_list = [0]  # Пользователь играет за место 0
+    seats_human_plays_list = [1]  # Пользователь играет за место 0
     args = DiscretizedNLHoldem.ARGS_CLS(n_seats=2,
                              bet_sizes_list_as_frac_of_pot=[
                                 #  0.2,
@@ -37,7 +37,7 @@ if __name__ == '__main__':
                              )
     env = DiscretizedNLHoldem(env_args=args, is_evaluating=True, lut_holder=DiscretizedNLHoldem.get_lut_holder())
     env.reset()
-    policy_network = load_policy_network("./checkpoints/pol_net.pt", len(env.get_current_obs(False)["concat"]), env.N_ACTIONS)
+    policy_network = load_policy_network("./checkpoints/adv_net0.pt", len(env.get_current_obs(False)["concat"]), env.N_ACTIONS)
     
    
     game = Sandbox(env,seats_human_plays_list, policy_network)

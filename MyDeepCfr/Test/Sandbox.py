@@ -8,7 +8,7 @@ import torch
 
 class Sandbox:
 
-    def __init__(self, env, seats_human_plays_list, eval_agent:PolicyNetwork=None):
+    def __init__(self, env, seats_human_plays_list, eval_agent=None):
 
         self._env:DiscretizedNLHoldem=env
         if len(seats_human_plays_list) < env.N_SEATS:
@@ -74,7 +74,7 @@ class Sandbox:
                     legal_actions_mask = np.zeros(self._env.N_ACTIONS, dtype="bool")
                     legal_actions_mask[self._env.get_legal_actions()] = 1.0
                   
-                    actions_prob = self._eval_agent.get_strategy(
+                    _, actions_prob = self._eval_agent.get_matched_regrets(
                         torch.tensor(self._env.get_current_obs(False)["concat"], dtype=torch.float32),
                         torch.tensor(legal_actions_mask, dtype=torch.float32))
                     action_idx=np.argmax(actions_prob)

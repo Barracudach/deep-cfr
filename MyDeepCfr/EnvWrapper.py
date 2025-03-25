@@ -46,6 +46,9 @@ class EnvWrapper():
     def get_current_obs(self):
         return self.env.get_current_obs(False)
     
+    def reshuffle_remaining_deck(self):
+        return self.env.reshuffle_remaining_deck()
+    
     def state_dict(self):
         return self.env.state_dict()
         # return {

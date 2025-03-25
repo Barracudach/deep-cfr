@@ -25,12 +25,12 @@ if __name__=="__main__":
                 batch_size_advantage=5000,
                 batch_size_strategy=10000,
                 memory_capacity=int(1e5),
-                scale_rewards=True,
+                scale_rewards=False,
                 reinitialize_advantage_networks=True)
 
     for iteration in range(NUM_ITERATIONS):
         solver.solve()
-        if iteration%10==0:
+        if iteration%5==0:
             print("Checkpoint")
             solver.save_all_networks()
             solver.save_memory_state()
