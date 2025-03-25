@@ -93,6 +93,8 @@ class AdvantageNetwork(nn.Module):
         # Calculate matched regrets
         if summed_regret.item() > 0:
             matched_regrets = advantages / summed_regret
+        elif summed_regret.item() ==0:
+            matched_regrets = legal_actions_mask / legal_actions_mask.sum()
         else:
             # fallback: выбрать легальное действие с наибольшим "сырым" регретом
             masked_raw = raw_advantages.clone()
