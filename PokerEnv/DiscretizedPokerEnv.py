@@ -188,4 +188,4 @@ class DiscretizedPokerEnv(_PokerEnv):
             break
         time.sleep(0.01)
 
-        return self._get_fixed_action(self._get_env_adjusted_action_formulation(action_int=action_idx))
+        return action_idx

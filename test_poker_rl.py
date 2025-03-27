@@ -12,6 +12,7 @@ from PokerEnv.games import DiscretizedNLHoldem
 import torch
 from MyDeepCfr.Networks import PolicyNetwork, AdvantageNetwork
 from MyDeepCfr.Test.Sandbox import *
+from MyDeepCfr.EnvWrapper import EnvWrapper
 
 # Загрузка модели
 def load_policy_network(model_path, input_size, num_actions):
@@ -36,11 +37,12 @@ if __name__ == '__main__':
                              scale_rewards=False
                              )
     env = DiscretizedNLHoldem(env_args=args, is_evaluating=True, lut_holder=DiscretizedNLHoldem.get_lut_holder())
+    env_wrapper=EnvWrapper(env)
     env.reset()
-    policy_network = load_policy_network("./checkpoints/adv_net0.pt", len(env.get_current_obs(False)["concat"]), env.N_ACTIONS)
+    policy_network = load_policy_network("./checkpoints/adv_net0.pt", len(env.get_current_obs(False)["concat"]), env_wrapper.get_actions_count())
     
    
-    game = Sandbox(env,seats_human_plays_list, policy_network)
+    game = Sandbox(env_wrapper,seats_human_plays_list, policy_network)
 
     game.start_to_play()
     

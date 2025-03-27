@@ -5,13 +5,9 @@ import time
 
 args = DiscretizedNLHoldem.ARGS_CLS(n_seats=2,
                             bet_sizes_list_as_frac_of_pot=[
-                                0.2,
-                                0.5,
-                                1.0,
-                                2.0
                             ],
                             stack_randomization_range=(0, 0,),
-                            starting_stack_sizes_list=[14,14],
+                            starting_stack_sizes_list=[40,40],
                             scale_rewards=False
                             )
 env = DiscretizedNLHoldem(env_args=args, is_evaluating=True, lut_holder=DiscretizedNLHoldem.get_lut_holder())

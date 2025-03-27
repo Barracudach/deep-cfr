@@ -64,7 +64,7 @@ class DeepCFRSolver:
         self._embedding_size = len(self._env_wrapper.get_current_obs()["concat"])
         self._num_traversals = num_traversals
         self._reinitialize_advantage_networks = reinitialize_advantage_networks
-        self._num_actions = self._env_wrapper.env.N_ACTIONS
+        self._num_actions = self._env_wrapper.get_actions_count()
         self._iteration = 1
         self._learning_rate = learning_rate
 
@@ -143,9 +143,11 @@ class DeepCFRSolver:
         self._logger.info(f"Loading memory state...")
         self.load_memory_state()
 
-        
-        
+        self._logger.info(f"Loading converge matrix...")
 
+        self._converge_data=[]
+        self._converge_data.append(np.load("./data/0;4,4;.npz")["tensor"])
+        #self._converge_data.append(np.load("./data/1;4,4;2.npz")["tensor"])
 
     def get_model_weights(self):
         return {
@@ -316,7 +318,7 @@ class DeepCFRSolver:
 
             ev = np.sum(exp_payoff * strategy)
             samp_regret = (exp_payoff - ev) * legal_actions_mask
-
+            
             self._advantage_memories[traverser].add(obs["concat"], int(self._iteration), samp_regret, legal_actions_mask)
 
             return ev
@@ -350,72 +352,63 @@ class DeepCFRSolver:
             self._env_wrapper.load_state_dict(state)
             return ev
     
-    def _get_n_a_to_sample(self, trav_depth, n_legal_actions):
-        if self._depth_after_which_one is not None and trav_depth > self._depth_after_which_one:
-            return 1  # глубокие узлы — только 1 действие
-        if self._n_actions_traverser_samples is None:
-            return n_legal_actions  # если явно не задано — берём все
-        return min(self._n_actions_traverser_samples, n_legal_actions) 
-        
-    def _traverse_game_tree2(self, state, traverser, depth=0):
-        self._env_wrapper.load_state_dict(state)
-        legal_actions = self._env_wrapper.legal_actions()
-        legal_actions_mask = self._env_wrapper.legal_actions_mask()
-        current_obs = self._env_wrapper.get_current_obs()
-
-        # Получение стратегии traverser-а
-        _, strategy = self._adv_networks[traverser].get_matched_regrets(
-            torch.tensor(current_obs, dtype=torch.float32).to(self.device),
-            torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device)
-        )
-
-        # Получаем количество действий, которое нужно сэмплировать
-        n_legal = len(legal_actions)
-        n_actions_to_sample = self._get_n_a_to_sample(depth, n_legal)
-
-        # Сэмплируем действия
-        sampled_actions = np.random.choice(
-            legal_actions,
-            size=min(n_actions_to_sample, n_legal),
-            replace=False
-        )
-
-        cum_reward = 0.0
-        approx_imm_regret = np.zeros(self._num_actions, dtype=np.float32)
-
-        for i, action in enumerate(sampled_actions):
-            strat_a = strategy[action]
-
-            if i > 0:
-                self._env_wrapper.load_state_dict(state)
-                self._env_wrapper.env.reshuffle_remaining_deck()
-
-            _obs, _rew_for_all, _done, _info = self._env_wrapper.step(action)
-            cfv_a = _rew_for_all[traverser]
-
-            if not _done:
-                cfv_a += self._traverse_game_tree2(self._env_wrapper.state_dict(), traverser, depth + 1)
-
-            cum_reward += strat_a * cfv_a
-
-            approx_imm_regret -= strat_a * cfv_a
-            approx_imm_regret[action] += cfv_a
-
-        approx_imm_regret = approx_imm_regret * legal_actions_mask / n_actions_to_sample
-
-        self._advantage_memories[traverser].add(
-            current_obs,
-            self._iteration,
-            approx_imm_regret,
-            legal_actions_mask
-        )
-
-        # Масштабирование суммы как в теории Sampled CFR
-        return cum_reward * n_legal / n_actions_to_sample
     
- 
+
+    def PreflopGTOMatrixConverge(self,player_idx):
+        if player_idx==0:
+            stacks=[4,4]
+            preflop_betline=[]
+            board=""
+            legal_actions_mask=[1,1,1]
+        else:
+            stacks=[4,4]
+            preflop_betline=[2]
+            board=""
+            legal_actions_mask=[1,1,0]
+
+        converge_matrix=np.zeros((13*13),dtype=np.float32)
+
+        labels = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']
+        for i, card1 in enumerate(labels):
+            for j, card2 in enumerate(labels):
+                if i < j:
+                    hand = card1+'s' + card2+'s' 
+                elif i >= j:
+                    hand = card2 + 's' + card1 + 'd' 
+
+                actions_ev=self._converge_data[player_idx][i* 13+ j] #call fold push
+
+                #переделываем на наш формат (фолд чек/колл пуш)
+                tmp=actions_ev[0]
+                actions_ev[0]=actions_ev[1]
+                actions_ev[1]=tmp
+
+                obs=self._env_wrapper.eval_obs(stacks,preflop_betline,[],board,hand)
+                
+                _, strategy = self._adv_networks[player_idx].get_matched_regrets(
+                    torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
+                    torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
+                
+                net_ev = np.sum(actions_ev * strategy)
+                solver_ev=np.max(actions_ev)
+                delta=np.abs(net_ev-solver_ev)
+                
+                converge_matrix[i* 13+ j]=delta
+
+        converge_matrix=converge_matrix.reshape((13,13))
+
+        # Преобразуем в изображение: [C, H, W] — 1 канал, 13 высота, 13 ширина
+        matrix_tensor = torch.tensor(converge_matrix, dtype=torch.float32).unsqueeze(0)  # -> [1, 13, 13]
+
+        matrix_tensor /= (matrix_tensor.max() + 1e-8)
+
+        self._tensorboard.add_image(f"converge/matrix/net{player_idx}", matrix_tensor, global_step=self._iteration)
+
+
     def solve(self):
         self._action_counts=[[0]*self._num_actions for _ in range(self._num_players)]
+
+       
         for p in range(self._num_players):
             self._logger.info(f"Traverse {p} player")
             start = time.time()
@@ -454,6 +447,9 @@ class DeepCFRSolver:
                 fig,
                 self._iteration
             )
+            if i==0:
+                self.PreflopGTOMatrixConverge(i)
+
 
         self._iteration += 1
         

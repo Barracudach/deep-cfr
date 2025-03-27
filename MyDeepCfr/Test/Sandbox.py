@@ -4,23 +4,25 @@ import copy
 import numpy as np
 from PokerEnv.games import DiscretizedNLHoldem 
 from MyDeepCfr.Networks import PolicyNetwork
+from MyDeepCfr.EnvWrapper import EnvWrapper
+
 import torch
 
 class Sandbox:
 
-    def __init__(self, env, seats_human_plays_list, eval_agent=None):
+    def __init__(self, env_wrapper, seats_human_plays_list, eval_agent=None):
 
-        self._env:DiscretizedNLHoldem=env
-        if len(seats_human_plays_list) < env.N_SEATS:
+        self._env_wrapper:EnvWrapper=env_wrapper
+        if len(seats_human_plays_list) < self._env_wrapper.seats_count():
             assert eval_agent is not None
 
        
-        self._env.reset()
+        self._env_wrapper.reset()
 
         self._eval_agent = eval_agent
 
         self._seats_human_plays_list = seats_human_plays_list
-        self._winnings_per_seat = [0 for _ in range(self._env.N_SEATS)]
+        self._winnings_per_seat = [0 for _ in range(self._env_wrapper.seats_count())]
 
     @property
     def seats_human_plays_list(self):
@@ -47,7 +49,7 @@ class Sandbox:
                                                              |____8||& & &|
                                                                     |____6|
                """)
-        self._env.print_tutorial()
+        self._env_wrapper.print_tutorial()
 
         # play forever until human player manually stops
         while True:
@@ -59,34 +61,30 @@ class Sandbox:
 
             # ______________________________________________ one episode _______________________________________________
 
-            self._env.reset()
-            self._env.render(mode=render_mode)
+            self._env_wrapper.reset()
+            self._env_wrapper.render(mode=render_mode)
             while True:
-                current_player_id = self._env.current_player.seat_id
+                current_player_id = self._env_wrapper.get_current_player().seat_id
 
                 # Human acts
                 if current_player_id in self._seats_human_plays_list:
-                    strategy = self._env.human_api_ask_action()
+                    strategy = self._env_wrapper.human_api_ask_action()
                             
                 # Agent acts
                 else:
-                   
-                    legal_actions_mask = np.zeros(self._env.N_ACTIONS, dtype="bool")
-                    legal_actions_mask[self._env.get_legal_actions()] = 1.0
-                  
                     _, actions_prob = self._eval_agent.get_matched_regrets(
-                        torch.tensor(self._env.get_current_obs(False)["concat"], dtype=torch.float32),
-                        torch.tensor(legal_actions_mask, dtype=torch.float32))
+                        torch.tensor(self._env_wrapper.get_current_obs()["concat"], dtype=torch.float32),
+                        torch.tensor(self._env_wrapper.legal_actions_mask(), dtype=torch.float32))
                     action_idx=np.argmax(actions_prob)
-                    strategy=self._env._get_fixed_action(self._env._get_env_adjusted_action_formulation(action_int=action_idx))
-                obs, rews, done, info = self._env._step(strategy)
-                self._env.render(mode=render_mode)
+                    strategy=action_idx
+                obs, rews, done, info = self._env_wrapper.step(strategy)
+                self._env_wrapper.render(mode=render_mode)
 
                 if done:
                     break
 
-            for s in range(self._env.N_SEATS):
-                self._winnings_per_seat[s] += np.rint(rews[s] * self._env.REWARD_SCALAR)
+            for s in range(self._env_wrapper.seats_count()):
+                self._winnings_per_seat[s] += np.rint(rews[s] * self._env_wrapper.get_reward_scalar())
 
             print("")
             print("Current rewards:", rews)

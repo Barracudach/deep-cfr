@@ -11,7 +11,7 @@ from .Poker import Poker
 from .PokerEnvStateDictEnums import EnvDictIdxs, PlayerDictIdxs
 from ._Deck import DeckOfCards
 from ._PokerPlayer import PokerPlayer
-
+from .card_redraw import *
 
 class PokerEnv:
     """
@@ -111,6 +111,9 @@ class PokerEnv:
     # Map ints to strings for printing cards
     RANK_DICT = NotImplementedError
     SUIT_DICT = NotImplementedError
+
+    RANK_DICT_INV = NotImplementedError
+    SUIT_DICT_INV = NotImplementedError
 
     # Class that contains the base-rulset the game follows
     RULES = NotImplementedError
@@ -1336,6 +1339,68 @@ class PokerEnv:
                         , dtype=np.float32)
     
 
+    def eval_obs(self,stacks:list,pre_betline:list,post_betline:list,board:str,hand:str):
+       
+
+        #normalization_sum = float(sum([s.starting_stack_this_episode for s in self.seats])) / self.N_SEATS
+
+        mask_value=0
+        stacks = np.array(stacks, dtype=np.float32)/100
+        stacks = np.pad(stacks, (0, max(0, 3 - len(stacks))), mode='constant')
+
+       
+        pre_bets= np.array( pre_betline, dtype=np.float32)/100.0
+        post_bets=np.array( post_betline, dtype=np.float32)/100.0
+        
+ 
+        post_bets = np.pad(post_bets, pad_width=(0,50 -len(post_bets)), mode='constant', constant_values=mask_value),
+        pre_bets= np.pad(pre_bets, pad_width=(0,50 - len(pre_bets)), mode='constant', constant_values=mask_value),
+        
+        common_bets=np.stack([pre_bets, post_bets])
+        cards= np.zeros(shape=(52),dtype="float32")
+
+        board_2d=np.tile(Poker.CARD_NOT_DEALT_TOKEN_2D, (5, 1))    
+        
+        #redraw cards
+        if board!="":
+            board, suit_mapping=RedrawTableCards(board)
+            hand=RedrawHandCardsByTable(board,hand,suit_mapping)
+            board_2d=self.str2cards(board)
+            hand_2d=self.str2cards(hand)
+        else:
+            hand=RedrawSingleHand(hand)
+            hand_2d=self.str2cards(hand)
+        
+        for board_card in board_2d:
+            if board_card[0]==-127:
+                break
+            cards[4*board_card[0]+board_card[1]]=1
+
+        
+        for card in hand_2d:
+            cards[4*card[0]+card[1]]=1
+            
+        #for table_card in self.:
+        concat = np.concatenate([
+            np.array([self.N_SEATS], dtype=np.float32),
+            stacks,
+            common_bets.reshape(-1), 
+            cards.reshape(-1) 
+        ])
+        obs={
+            "players_cards":[],
+            "board_cards":board,
+            "mask_value":mask_value,
+            "players_count":self.N_SEATS,
+            "stacks":stacks,
+            "bets": common_bets,
+            "cards":cards,
+            "concat":concat
+        }
+    
+
+        return obs
+    
     def get_current_obs(self, is_terminal):
        
 
@@ -1356,14 +1421,28 @@ class PokerEnv:
         common_bets=np.stack([pre_bets, post_bets])
         cards= np.zeros(shape=(52),dtype="float32")
         
-
-        for board_card in self.board:
+        #redraw cards
+        board_2d= self.board
+        hand_2d=self.current_player.hand
+        
+        board=self.cards2str(board_2d,"")
+        hand=self.cards2str(hand_2d,"")
+        if board!="":
+            board, suit_mapping=RedrawTableCards(board)
+            hand=RedrawHandCardsByTable(board,hand,suit_mapping)
+            board_2d=self.str2cards(board)
+            hand_2d=self.str2cards(hand)
+        else:
+            hand=RedrawSingleHand(hand)
+            hand_2d=self.str2cards(hand)
+        
+        for board_card in board_2d:
             if board_card[0]==-127:
                 break
             cards[4*board_card[0]+board_card[1]]=1
 
         
-        for card in self.current_player.hand:
+        for card in hand_2d:
             cards[4*card[0]+card[1]]=1
             
         #for table_card in self.:
@@ -1427,6 +1506,18 @@ class PokerEnv:
                 hand_as_str += self.SUIT_DICT[c[1]]
                 hand_as_str += seperator
         return hand_as_str
+    
+
+    def str2cards(self, cards:str):
+        hand_cards = cards.replace(' ', '')
+        splited_cards = [(hand_cards[i], hand_cards[i + 1]) for i in range(0, len(hand_cards), 2)]
+ 
+        cards_2d=np.tile(Poker.CARD_NOT_DEALT_TOKEN_2D, (len(splited_cards), 1))
+        for i, (rank_char, suit_char) in enumerate(splited_cards):
+            if rank_char in self.RANK_DICT_INV and suit_char in self.SUIT_DICT_INV:
+                cards_2d[i] = [self.RANK_DICT_INV[rank_char], self.SUIT_DICT_INV[suit_char]]
+        return cards_2d
+    
 
     def get_legal_actions(self):
         """

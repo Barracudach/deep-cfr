@@ -67,6 +67,8 @@ class HoldemRules:
         2: "s",
         3: "c"
     }
+    RANK_DICT_INV =  {v: k for k, v in RANK_DICT.items()}
+    SUIT_DICT_INV =  {v: k for k, v in SUIT_DICT.items()}
 
     STRING = "HOLDEM_RULES"
 

@@ -2,10 +2,14 @@ from MyDeepCfr.DeepCFRSolver import DeepCFRSolver
 from PokerEnv.games import DiscretizedNLHoldem
 from MyDeepCfr.EnvWrapper import EnvWrapper
 import ray
+import numpy as np
+import torch
 
 NUM_WORKERS = 4 
 NUM_ITERATIONS = 10000
 SYNT_INTERVAL = 1 
+
+
 
 
 if __name__=="__main__":
@@ -21,12 +25,12 @@ if __name__=="__main__":
                 ],
                 starting_stack_sizes_list=[40,40],
                 num_traversals=250,
-                learning_rate=1e-3,
+                learning_rate=1e-4,
                 batch_size_advantage=5000,
                 batch_size_strategy=10000,
                 memory_capacity=int(1e5),
                 scale_rewards=False,
-                reinitialize_advantage_networks=True)
+                reinitialize_advantage_networks=False)
 
     for iteration in range(NUM_ITERATIONS):
         solver.solve()
