@@ -30,7 +30,8 @@ class DeepCFRSolver:
                learning_rate: float = 1e-3,
                batch_size_advantage: int = 2048,
                batch_size_strategy: int = 2048,
-               memory_capacity: int = int(1e4),
+               adv_memory_capacity: int = int(1e5),
+               strat_memory_capacity: int = int(1e4),
                policy_epochs: int = 5,
                advantage_epochs: int = 5,
                reinitialize_advantage_networks: bool = False,
@@ -125,9 +126,9 @@ class DeepCFRSolver:
         for i in range(1,self._num_players):
             self._adv_networks[i].load_state_dict(self._adv_networks[0].state_dict())
 
-        self._strategy_memories = StrategyDataset(memory_capacity)
+        self._strategy_memories = StrategyDataset(strat_memory_capacity)
         self._advantage_memories = [
-            AdvantageDataset(int(memory_capacity/2)) for _ in range(self._num_players)
+            AdvantageDataset(adv_memory_capacity) for _ in range(self._num_players)
         ]
 
         self._players_steps=[0]*self._num_players
@@ -148,6 +149,8 @@ class DeepCFRSolver:
         self._converge_data=[]
         self._converge_data.append(np.load("./data/0;4,4;.npz")["tensor"])
         #self._converge_data.append(np.load("./data/1;4,4;2.npz")["tensor"])
+
+
 
     def get_model_weights(self):
         return {
@@ -170,36 +173,44 @@ class DeepCFRSolver:
         self._adv_networks_train[player] = AdvantageNetwork(f"adv_net_train{player}", self._embedding_size, self._num_actions).to(self.device)
         self._optimizer_advantages[player] = optim.Adam(params= self._adv_networks_train[player].parameters(),
                                                          lr=self._learning_rate)
-        
+
+    def soft_update(self,target_model, source_model, tau):
+        for target_param, source_param in zip(target_model.parameters(), source_model.parameters()):
+            target_param.data.copy_(tau * source_param.data + (1 - tau) * target_param.data)
+
     def _learn_advantage_network(self, player):
 
-        dataloader = self._advantage_memories[player].get_dataloader(
-            batch_size=self._batch_size_advantage,
-            shuffle=True,
-        )
+        info_states, iterations, samp_regrets, legal_actions = self._advantage_memories[player].get_data()
 
         model: AdvantageNetwork = self._adv_networks_train[player]
         optimizer: optim.Adam = self._optimizer_advantages[player]
         loss_func: nn.MSELoss = self._loss_advantages[player]
 
         total_loss = 0.0
- 
+
+        dataset_size = len(info_states)
+        indices = np.arange(dataset_size)
         for epoch in range(self._advantage_epochs):
             total_loss=0.0
-            for batch in dataloader:
-                info_states, iterations, samp_regrets, legal_actions = batch
-
-                info_states = info_states.to(self.device)
-                samp_regrets = samp_regrets.to(self.device)
-                legal_actions = legal_actions.to(self.device)
+            np.random.shuffle(indices)
+            for start_idx in range(0, dataset_size, self._batch_size_advantage):
+                end_idx = min(start_idx + self._batch_size_advantage, dataset_size)
+                batch_indices = indices[start_idx:end_idx]
+                
+                    # собираем батч
+                batch_info_states = info_states[batch_indices].to(self.device)
+                batch_iterations = iterations[batch_indices].to(self.device)
+                batch_samp_regrets = samp_regrets[batch_indices].to(self.device)
+                batch_legal_actions = legal_actions[batch_indices].to(self.device)
+                cur_iter=torch.tensor(self._iteration, dtype=torch.float32, device=self.device)
 
                 optimizer.zero_grad()
                 model.train()
 
-                preds = model((info_states, legal_actions))
-                sample_weight = (iterations*2 / self._iteration).unsqueeze(1).to(self.device)
+                preds = model(batch_info_states)*batch_legal_actions
+                sample_weight = (batch_iterations / cur_iter).unsqueeze(1).to(self.device)
 
-                main_loss: torch.Tensor = loss_func(preds, samp_regrets) * sample_weight
+                main_loss: torch.Tensor = loss_func(preds, batch_samp_regrets) * sample_weight 
                 main_loss = main_loss.mean()
 
                 main_loss.backward()
@@ -207,42 +218,46 @@ class DeepCFRSolver:
                 optimizer.step()
                 total_loss += main_loss.item()
             
+        self.soft_update(self._adv_networks[player], self._adv_networks_train[player], 0.4)
+        # self._adv_networks[player].load_state_dict(
+        #     self._adv_networks_train[player].state_dict()
+        # )
 
-        self._adv_networks[player].load_state_dict(
-            self._adv_networks_train[player].state_dict()
-        )
-
-        return total_loss / len(dataloader)
+        return total_loss /  (dataset_size / self._batch_size_advantage)
 
     def _learn_strategy_network(self):
 
-        dataloader = self._strategy_memories.get_dataloader(
-            batch_size=self._batch_size_strategy,
-            shuffle=True
-        )
+        info_states, iterations, strategies, legal_actions = self._strategy_memories.get_data()
+ 
         model:AdvantageNetwork = self._policy_network
         optimizer:optim.Adam = self._optimizer_policy
         loss_func:nn.MSELoss=self._loss_policy
 
         total_loss = 0.0
+
+        dataset_size = len(info_states)
+        indices = np.arange(dataset_size)
         for epoch in range(self._policy_epochs):
             total_loss=0.0
-            for batch in dataloader:
-                info_states, iterations, strategy, legal_actions = batch
+            np.random.shuffle(indices)
+            for start_idx in range(0, dataset_size, self._batch_size_advantage):
+                end_idx = min(start_idx + self._batch_size_advantage, dataset_size)
+                batch_indices = indices[start_idx:end_idx]
                 
-                info_states = info_states.to(self.device)
-                strategy = strategy.to(self.device)
-                legal_actions = legal_actions.to(self.device)
-
-            
+                    # собираем батч
+                batch_info_states = info_states[batch_indices].to(self.device)
+                batch_iterations = iterations[batch_indices].to(self.device)
+                batch_strategies = strategies[batch_indices].to(self.device)
+                batch_legal_actions = legal_actions[batch_indices].to(self.device)
+                cur_iter=torch.tensor(self._iteration, dtype=torch.float32, device=self.device)
 
                 optimizer.zero_grad()
                 model.train()
 
-                preds = model((info_states, legal_actions))
+                preds = model(batch_info_states)*batch_legal_actions
 
-                sample_weight = (iterations*2 / self._iteration).unsqueeze(1).to(self.device)
-                main_loss:torch.Tensor = loss_func(preds, strategy)*sample_weight
+                sample_weight = (batch_iterations / cur_iter).unsqueeze(1).to(self.device)
+                main_loss:torch.Tensor = loss_func(preds, batch_strategies)*sample_weight
                 main_loss=main_loss.mean()
 
                 main_loss.backward()
@@ -250,7 +265,7 @@ class DeepCFRSolver:
                 optimizer.step()
                 total_loss += main_loss.item()
 
-        return total_loss / len(dataloader)
+        return total_loss /  (dataset_size / self._batch_size_advantage)
 
 
     def save_memory_state(self):
@@ -289,71 +304,7 @@ class DeepCFRSolver:
         except Exception as e:
             self._logger.info(f"[-]Cant load network {name}.pt . Exception:{e}")
     
-
-    def _traverse_game_tree(self, state, traverser, depth=0):
-        legal_actions_mask = self._env_wrapper.legal_actions_mask()
-        obs = self._env_wrapper.get_current_obs()
-        current_player = state["current_player"]
-
-        if current_player == traverser:
-            _, strategy = self._adv_networks[traverser].get_matched_regrets(
-                torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
-                torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
-
-            exp_payoff = np.zeros_like(strategy, dtype=np.float32)
-
-            for i,action in enumerate(self._env_wrapper.legal_actions()):
-                _obs, _rew_for_all, _done, _info = self._env_wrapper.step(action)
-                
-                if _done:
-                    # if action==0:
-                    #     exp_payoff[action]=0
-                    # else:
-                    exp_payoff[action] = _rew_for_all[traverser]
-                else:
-                    cur_state = self._env_wrapper.state_dict()
-                    exp_payoff[action] = self._traverse_game_tree(cur_state, traverser, depth + 1)
-                self._env_wrapper.load_state_dict(state)
-
-
-            ev = np.sum(exp_payoff * strategy)
-            samp_regret = (exp_payoff - ev) * legal_actions_mask
-            
-            self._advantage_memories[traverser].add(obs["concat"], int(self._iteration), samp_regret, legal_actions_mask)
-
-            return ev
-
-        else:
-            _, strategy = self._adv_networks[current_player].get_matched_regrets(
-                torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
-                torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
-
-            probs = strategy
-            if probs.sum() > 0:
-                probs /= probs.sum()
-            else:
-                probs = np.ones_like(probs) / len(probs)
-
-            sampled_action = np.random.choice(range(self._num_actions), p=probs)
-            self._strategy_memories.add(obs["concat"], int(self._iteration), probs, legal_actions_mask)
-
-            _obs, _rew_for_all, _done, _info = self._env_wrapper.step(sampled_action)
-            self._action_counts[traverser][sampled_action] += 1
-
-            if _done:
-                self._env_wrapper.load_state_dict(state)
-                # if sampled_action==0:
-                #     return 0
-                # else:
-                return _rew_for_all[traverser]
-
-            cur_state = self._env_wrapper.state_dict()
-            ev = self._traverse_game_tree(cur_state, traverser, depth + 1)
-            self._env_wrapper.load_state_dict(state)
-            return ev
     
-    
-
     def PreflopGTOMatrixConverge(self,player_idx):
         if player_idx==0:
             stacks=[4,4]
@@ -404,18 +355,107 @@ class DeepCFRSolver:
 
         self._tensorboard.add_image(f"converge/matrix/net{player_idx}", matrix_tensor, global_step=self._iteration)
 
+    def _traverse_game_tree(self, state, traverser, depth=0):
+        legal_actions = self._env_wrapper.legal_actions()
+        legal_actions_mask = np.zeros(self._env_wrapper.get_actions_count(), dtype=np.float32)
+        legal_actions_mask[legal_actions]=1
+        obs = self._env_wrapper.get_current_obs()
+        current_player = state["current_player"]
+
+        if current_player == traverser:
+            _, strategy = self._adv_networks[traverser].get_matched_regrets(
+                torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
+                torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
+
+            exp_payoff = np.zeros_like(strategy, dtype=np.float32)
+
+            for action in legal_actions:
+                _obs, _rew_for_all, _done, _info = self._env_wrapper.step(action)
+                
+                if _done:
+                    # if action==0:
+                    #     exp_payoff[action]=0
+                    # else:
+                    exp_payoff[action] = _rew_for_all[traverser]
+                else:
+                    cur_state = self._env_wrapper.state_dict()
+                    #new_obs = self._env_wrapper.get_current_obs()
+                    #print(f"{obs['len1']}-{obs['where']}-{obs['redrawned_self_cards']}  |  {new_obs['len1']}-{new_obs['where']}-{new_obs['redrawned_self_cards']}")
+                    exp_payoff[action] = self._traverse_game_tree(cur_state, traverser, depth + 1)
+                self._env_wrapper.load_state_dict(state)
+
+            ev = np.sum(exp_payoff * strategy)
+            
+            self._action_counts[traverser][traverser][ np.argmax(strategy)] += 1
+            samp_regret = (exp_payoff - ev) * legal_actions_mask 
+
+
+            # max_scaling_factor = 50.0
+            # min_scaling_factor = 5.0
+
+            # Плавно уменьшаем фактор сглаживания по мере увеличения итераций
+            # regret_scaling_factor = max(
+            #     min_scaling_factor, 
+            #     max_scaling_factor / np.sqrt(self._iteration)
+            # )
+            # samp_regret = np.tanh(samp_regret / regret_scaling_factor) * regret_scaling_factor
+
+            #print(f"raw_regrets:{_} samp_regrets: {samp_regret}")
+            #max_abs = max(np.max(np.abs(samp_regret)), 1.0)
+            #samp_regret = np.clip(samp_regret / max_abs, -1.0, 1.0)
+            samp_regret=np.maximum(samp_regret,0)
+
+            #if  samp_regret.sum()>1e-4:
+            self._advantage_memories[traverser].add(obs["concat"], int(self._iteration), samp_regret, legal_actions_mask)
+
+            return ev
+
+        else:
+            _, strategy = self._adv_networks[current_player].get_matched_regrets(
+                torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
+                torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
+            
+            self._action_counts[traverser][current_player][ np.argmax(strategy)] += 1
+
+            self._strategy_memories.add(obs["concat"], int(self._iteration), strategy, legal_actions_mask)
+            sampled_action = np.random.choice(range(self._num_actions), p=strategy)
+        
+            
+            # if current_player==0:
+            #     if legal_actions_mask[2]!=0:
+            #         sampled_action=2
+
+            _obs, _rew_for_all, _done, _info = self._env_wrapper.step(sampled_action)
+            self._action_counts[traverser][current_player][sampled_action] += 1
+
+            if _done:
+                self._env_wrapper.load_state_dict(state)
+                # if sampled_action==0:
+                #     return 0
+                # else:
+                return _rew_for_all[traverser]
+
+            cur_state = self._env_wrapper.state_dict()
+            ev = self._traverse_game_tree(cur_state, traverser, depth + 1)
+            self._env_wrapper.load_state_dict(state)
+            return ev
+    
+    
+
 
     def solve(self):
-        self._action_counts=[[0]*self._num_actions for _ in range(self._num_players)]
+        self._action_counts=[[[0]*self._num_actions for _ in range(self._num_players)]for _ in range(self._num_players)]
 
        
-        for p in range(self._num_players):
+        for p in range(self._num_players-1):
             self._logger.info(f"Traverse {p} player")
             start = time.time()
             for traverse_iter in range(self._num_traversals):
                 self._env_wrapper.reset()
                 root_state = self._env_wrapper.state_dict()
-                #print("_________________________________________")
+
+                #self._env_wrapper.SetPlayersHands(["AsAd", "7s2d"]) #DEBUG
+
                 self._traverse_game_tree(root_state, traverser=p)
 
             if self._enable_tb:
@@ -423,32 +463,36 @@ class DeepCFRSolver:
                 self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/pol", len(self._strategy_memories) ,self._iteration)
             self._logger.info(f"Traverse time:{time.time()-start}")
 
+          
+            
+            
+
+        for p in range(self._num_players):
             if len(self._advantage_memories[p]) < self._batch_size_advantage:
                 continue
-            
             if self._reinitialize_advantage_networks:
                 self._reinitialize_advantage_network(p)
-            
             self._logger.info(f"Learn advantage network")
             loss=self._learn_advantage_network(p)
             if self._enable_tb:
                 self._tensorboard.add_scalar(f"solver{self._solver_idx}/loss/adv_net{p}", loss,self._iteration)
             self._logger.info(f"Loss: {loss}")
         
-        for i in range(self._num_players):
-            fig, ax = plt.subplots()
-            bars = ax.bar(range(len(self._action_counts[i])), self._action_counts[i])
-            ax.set_xlabel('Action')
-            ax.set_ylabel('Counts')
-            ax.set_title(f'Actions Distribution (solver {self._solver_idx}, net{i})')
+        for net_idx in range(self._num_players):
+            for player_idx in range(self._num_players):
+                fig, ax = plt.subplots()
+                bars = ax.bar(range(len(self._action_counts[net_idx][player_idx])), self._action_counts[net_idx][player_idx])
+                ax.set_xlabel('Action')
+                ax.set_ylabel('Counts')
+                ax.set_title(f'Actions Distribution net{net_idx} player{player_idx}')
 
-            self._tensorboard.add_figure(
-                f"solver{self._solver_idx}/actions/net{i}",
-                fig,
-                self._iteration
-            )
-            if i==0:
-                self.PreflopGTOMatrixConverge(i)
+                self._tensorboard.add_figure(
+                    f"solver{self._solver_idx}/actions/net{net_idx}/player{player_idx}",
+                    fig,
+                    self._iteration
+                )
+            if net_idx==0:
+                self.PreflopGTOMatrixConverge(net_idx)
 
 
         self._iteration += 1

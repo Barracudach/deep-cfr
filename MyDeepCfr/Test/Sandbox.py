@@ -72,7 +72,7 @@ class Sandbox:
                             
                 # Agent acts
                 else:
-                    _, actions_prob = self._eval_agent.get_matched_regrets(
+                    _, actions_prob = self._eval_agent.get_strategy(
                         torch.tensor(self._env_wrapper.get_current_obs()["concat"], dtype=torch.float32),
                         torch.tensor(self._env_wrapper.legal_actions_mask(), dtype=torch.float32))
                     action_idx=np.argmax(actions_prob)

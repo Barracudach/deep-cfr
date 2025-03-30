@@ -31,23 +31,13 @@ class AdvantageDataset(Dataset):
     def shuffle_data(self):
         random.shuffle(self._buffer)
 
-    def get_dataloader(self, batch_size: int, shuffle: bool = True):
-        info_states = torch.tensor([x[0] for x in self._buffer], dtype=torch.float32)
-        iterations = torch.tensor([x[1] for x in self._buffer], dtype=torch.float32)
-        samp_regrets = torch.tensor([x[2] for x in self._buffer], dtype=torch.float32)
-        legal_actions = torch.tensor([x[3] for x in self._buffer], dtype=torch.float32)
+    def get_data(self):
+        info_states = torch.tensor([x[0] for x in self._buffer], dtype=torch.float32).cpu()
+        iterations = torch.tensor([x[1] for x in self._buffer], dtype=torch.float32).cpu()
+        samp_regrets = torch.tensor([x[2] for x in self._buffer], dtype=torch.float32).cpu()
+        legal_actions = torch.tensor([x[3] for x in self._buffer], dtype=torch.float32).cpu()
 
- 
-        dataset = torch.utils.data.TensorDataset(info_states, iterations, samp_regrets, legal_actions)
-
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=0,  # Параллельная загрузка данных
-            drop_last=True,  # Игнорируем последний батч, если он меньше batch_size
-        )
-        return dataloader
+        return (info_states,iterations,samp_regrets,legal_actions)
     
         # # Сумма стратегий по каждому действию
         # action_sums = samp_regrets.sum(dim=0).cpu().numpy()  # shape: [num_actions]
@@ -131,23 +121,23 @@ class  StrategyDataset(Dataset):
     def shuffle_data(self):
         random.shuffle(self._buffer)
 
-    def get_dataloader(self, batch_size: int, shuffle: bool = True):
-        info_states = torch.tensor([x[0] for x in self._buffer], dtype=torch.float32)
-        iterations = torch.tensor([x[1] for x in self._buffer], dtype=torch.float32)
-        strategies = torch.tensor([x[2] for x in self._buffer], dtype=torch.float32)
-        legal_actions = torch.tensor([x[3] for x in self._buffer], dtype=torch.float32)
+    def get_data(self):
+        info_states = torch.tensor([x[0] for x in self._buffer], dtype=torch.float32).cpu()
+        iterations = torch.tensor([x[1] for x in self._buffer], dtype=torch.float32).cpu()
+        strategies = torch.tensor([x[2] for x in self._buffer], dtype=torch.float32).cpu()
+        legal_actions = torch.tensor([x[3] for x in self._buffer], dtype=torch.float32).cpu()
 
 
-        dataset = torch.utils.data.TensorDataset(info_states, iterations, strategies, legal_actions)
+        # dataset = torch.utils.data.TensorDataset(info_states, iterations, strategies, legal_actions)
 
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=0,  # Параллельная загрузка данных
-            drop_last=True,  # Игнорируем последний батч, если он меньше batch_size
-        )
-        return dataloader
+        # dataloader = DataLoader(
+        #     dataset,
+        #     batch_size=batch_size,
+        #     shuffle=shuffle,
+        #     num_workers=0,  # Параллельная загрузка данных
+        #     drop_last=False,  # Игнорируем последний батч, если он меньше batch_size
+        # )
+        return (info_states, iterations, strategies, legal_actions)
     
     def save_buffer(self, filepath: str):
         info_states = np.array([x[0] for x in self._buffer])

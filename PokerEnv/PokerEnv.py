@@ -1411,10 +1411,16 @@ class PokerEnv:
         stacks = np.pad(stacks, (0, max(0, 3 - len(stacks))), mode='constant')
 
        
-        pre_bets= np.array( self._preflop_betline, dtype=np.float32)/100.0
-        post_bets=np.array(self._postflop_betline, dtype=np.float32)/100.0
-        
- 
+        pre_bets= np.array( self._preflop_betline, dtype=np.float32)
+        mask = pre_bets != -1
+        pre_bets[mask] /= 100.0
+        pre_bets[pre_bets == 0] = -0.5
+
+        post_bets=np.array(self._postflop_betline, dtype=np.float32)
+        mask = post_bets != -1
+        post_bets[mask] /= 100.0
+        post_bets[post_bets == 0] = -0.5
+
         post_bets = np.pad(post_bets, pad_width=(0,50 -len(post_bets)), mode='constant', constant_values=mask_value),
         pre_bets= np.pad(pre_bets, pad_width=(0,50 - len(pre_bets)), mode='constant', constant_values=mask_value),
         
@@ -1423,7 +1429,7 @@ class PokerEnv:
         
         #redraw cards
         board_2d= self.board
-        hand_2d=self.current_player.hand
+        hand_2d= self.current_player.hand
         
         board=self.cards2str(board_2d,"")
         hand=self.cards2str(hand_2d,"")
@@ -1455,12 +1461,17 @@ class PokerEnv:
         obs={
             "players_cards":[self.cards2str(seat.hand) for seat in self.seats],
             "board_cards":self.cards2str(self.board),
+            "redrawned_self_cards":hand,
+            "redrawned_board":board,
             "mask_value":mask_value,
             "players_count":self.N_SEATS,
             "stacks":stacks,
             "bets": common_bets,
             "cards":cards,
-            "concat":concat
+            "concat":concat,
+            "len1": np.sum(cards == 1),
+            "where":np.where(cards == 1)[0]
+
         }
     
 

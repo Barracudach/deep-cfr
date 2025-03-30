@@ -69,6 +69,21 @@ class EnvWrapper():
     def load_state_dict(self, state_dict):
         self.env.load_state_dict(state_dict)
 
+    def SetPlayersHands(self, hands: list[str]):
+
+        for  seat in self.env.seats:
+            self.env.deck.deck_remaining=np.append(self.env.deck.deck_remaining, seat.hand,axis=0)
+
+        for hand in hands:
+            hand2d = self.env.str2cards(hand)
+            for card in hand2d:
+                if card in self.env.deck.deck_remaining:
+                    self.env.deck.deck_remaining = self.env.deck.deck_remaining[~np.all(self.env.deck.deck_remaining == card, axis=1)]
+
+
+        for i, seat in enumerate(self.env.seats):
+            seat.hand = self.env.str2cards(hands[i])
+            
 
 
     def seats_count(self):
