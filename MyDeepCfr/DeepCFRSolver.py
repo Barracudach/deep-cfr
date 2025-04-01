@@ -340,9 +340,9 @@ class DeepCFRSolver:
                 obs=self._env_wrapper.eval_obs(stacks,preflop_betline,[],board,hand)
                 
                 #strategy=self.get_strategy_from_table(player_idx,legal_actions_mask,obs["concat"])
-                _, strategy = self._adv_networks[player_idx].get_matched_retgrets(
+                _, strategy = self._adv_networks[player_idx].get_matched_regrets(
                     torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
-                    torch.tensor(legal_actions_mask, dtype=torch.float32).o(self.device))
+                    torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
                 
                 net_ev = np.sum(actions_ev * strategy)
                 solver_ev=np.max(actions_ev)
