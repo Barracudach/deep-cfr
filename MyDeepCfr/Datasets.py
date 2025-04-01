@@ -32,10 +32,10 @@ class AdvantageDataset(Dataset):
         random.shuffle(self._buffer)
 
     def get_data(self):
-        info_states = torch.tensor([x[0] for x in self._buffer], dtype=torch.float32).cpu()
-        iterations = torch.tensor([x[1] for x in self._buffer], dtype=torch.float32).cpu()
-        samp_regrets = torch.tensor([x[2] for x in self._buffer], dtype=torch.float32).cpu()
-        legal_actions = torch.tensor([x[3] for x in self._buffer], dtype=torch.float32).cpu()
+        info_states = np.array([x[0] for x in self._buffer], dtype=np.float32)
+        iterations = np.array([x[1] for x in self._buffer], dtype=np.float32)
+        samp_regrets = np.array([x[2] for x in self._buffer], dtype=np.float32)
+        legal_actions = np.array([x[3] for x in self._buffer], dtype=np.float32)
 
         return (info_states,iterations,samp_regrets,legal_actions)
     
@@ -122,10 +122,10 @@ class  StrategyDataset(Dataset):
         random.shuffle(self._buffer)
 
     def get_data(self):
-        info_states = torch.tensor([x[0] for x in self._buffer], dtype=torch.float32).cpu()
-        iterations = torch.tensor([x[1] for x in self._buffer], dtype=torch.float32).cpu()
-        strategies = torch.tensor([x[2] for x in self._buffer], dtype=torch.float32).cpu()
-        legal_actions = torch.tensor([x[3] for x in self._buffer], dtype=torch.float32).cpu()
+        info_states =np.array([x[0] for x in self._buffer], dtype=np.float32)
+        iterations = np.array([x[1] for x in self._buffer], dtype=np.float32)
+        strategies = np.array([x[2] for x in self._buffer], dtype=np.float32)
+        legal_actions = np.array([x[3] for x in self._buffer], dtype=np.float32)
 
 
         # dataset = torch.utils.data.TensorDataset(info_states, iterations, strategies, legal_actions)

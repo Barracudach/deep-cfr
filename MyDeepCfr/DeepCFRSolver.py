@@ -5,6 +5,8 @@ import numpy as np
 import copy
 import matplotlib
 import matplotlib.pyplot as plt
+from collections import defaultdict 
+import hashlib
 
 import torch
 import torch.nn as nn
@@ -150,6 +152,7 @@ class DeepCFRSolver:
         self._converge_data.append(np.load("./data/0;4,4;.npz")["tensor"])
         #self._converge_data.append(np.load("./data/1;4,4;2.npz")["tensor"])
 
+        self._regret_table = [defaultdict(lambda: np.zeros(self._num_actions, dtype=np.float32)) for _ in range(self._num_players)]
 
 
     def get_model_weights(self):
@@ -178,6 +181,7 @@ class DeepCFRSolver:
         for target_param, source_param in zip(target_model.parameters(), source_model.parameters()):
             target_param.data.copy_(tau * source_param.data + (1 - tau) * target_param.data)
 
+    
     def _learn_advantage_network(self, player):
 
         info_states, iterations, samp_regrets, legal_actions = self._advantage_memories[player].get_data()
@@ -186,44 +190,43 @@ class DeepCFRSolver:
         optimizer: optim.Adam = self._optimizer_advantages[player]
         loss_func: nn.MSELoss = self._loss_advantages[player]
 
+
+     
         total_loss = 0.0
 
         dataset_size = len(info_states)
         indices = np.arange(dataset_size)
         for epoch in range(self._advantage_epochs):
-            total_loss=0.0
+            total_loss = 0.0
             np.random.shuffle(indices)
             for start_idx in range(0, dataset_size, self._batch_size_advantage):
                 end_idx = min(start_idx + self._batch_size_advantage, dataset_size)
                 batch_indices = indices[start_idx:end_idx]
-                
-                    # собираем батч
-                batch_info_states = info_states[batch_indices].to(self.device)
-                batch_iterations = iterations[batch_indices].to(self.device)
-                batch_samp_regrets = samp_regrets[batch_indices].to(self.device)
-                batch_legal_actions = legal_actions[batch_indices].to(self.device)
-                cur_iter=torch.tensor(self._iteration, dtype=torch.float32, device=self.device)
+
+                batch_info_states = torch.from_numpy(info_states[batch_indices]).to(self.device)
+                batch_iterations = torch.from_numpy(iterations[batch_indices]).to(self.device)
+                batch_samp_regrets = torch.from_numpy(samp_regrets[batch_indices]).to(self.device)
+                batch_legal_actions = torch.from_numpy(legal_actions[batch_indices]).to(self.device)
+                cur_iter = torch.tensor(self._iteration, dtype=torch.float32, device=self.device)
 
                 optimizer.zero_grad()
                 model.train()
 
-                preds = model(batch_info_states)*batch_legal_actions
+                preds = model(batch_info_states) * batch_legal_actions
                 sample_weight = (batch_iterations / cur_iter).unsqueeze(1).to(self.device)
 
-                main_loss: torch.Tensor = loss_func(preds, batch_samp_regrets) * sample_weight 
+                main_loss: torch.Tensor = loss_func(preds, batch_samp_regrets) * sample_weight
                 main_loss = main_loss.mean()
 
                 main_loss.backward()
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
-                total_loss += main_loss.item()
-            
-        self.soft_update(self._adv_networks[player], self._adv_networks_train[player], 0.4)
-        # self._adv_networks[player].load_state_dict(
-        #     self._adv_networks_train[player].state_dict()
-        # )
 
-        return total_loss /  (dataset_size / self._batch_size_advantage)
+                total_loss += main_loss.item()
+
+        self.soft_update(self._adv_networks[player], self._adv_networks_train[player], 0.4)
+
+        return  total_loss /  (dataset_size / self._batch_size_advantage)
 
     def _learn_strategy_network(self):
 
@@ -245,10 +248,10 @@ class DeepCFRSolver:
                 batch_indices = indices[start_idx:end_idx]
                 
                     # собираем батч
-                batch_info_states = info_states[batch_indices].to(self.device)
-                batch_iterations = iterations[batch_indices].to(self.device)
-                batch_strategies = strategies[batch_indices].to(self.device)
-                batch_legal_actions = legal_actions[batch_indices].to(self.device)
+                batch_info_states = torch.from_numpy(info_states[batch_indices]).to(self.device)
+                batch_iterations = torch.from_numpy(iterations[batch_indices]).to(self.device)
+                batch_strategies = torch.from_numpy(strategies[batch_indices]).to(self.device)
+                batch_legal_actions = torch.from_numpy(legal_actions[batch_indices]).to(self.device)
                 cur_iter=torch.tensor(self._iteration, dtype=torch.float32, device=self.device)
 
                 optimizer.zero_grad()
@@ -336,9 +339,10 @@ class DeepCFRSolver:
 
                 obs=self._env_wrapper.eval_obs(stacks,preflop_betline,[],board,hand)
                 
-                _, strategy = self._adv_networks[player_idx].get_matched_regrets(
+                #strategy=self.get_strategy_from_table(player_idx,legal_actions_mask,obs["concat"])
+                _, strategy = self._adv_networks[player_idx].get_matched_retgrets(
                     torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
-                    torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
+                    torch.tensor(legal_actions_mask, dtype=torch.float32).o(self.device))
                 
                 net_ev = np.sum(actions_ev * strategy)
                 solver_ev=np.max(actions_ev)
@@ -355,6 +359,34 @@ class DeepCFRSolver:
 
         self._tensorboard.add_image(f"converge/matrix/net{player_idx}", matrix_tensor, global_step=self._iteration)
 
+    def hash_info_state(self,info_state: np.ndarray) -> str:
+        info_bytes = info_state.astype(np.float32).tobytes()
+        return hashlib.sha256(info_bytes).hexdigest()
+    
+    def get_strategy_from_table(self,player,_legal_action_mask, info_state: np.ndarray):
+        hash=self.hash_info_state(info_state)
+
+        regrets=np.zeros(self._num_actions)
+        if hash in self._regret_table[player]:
+            regrets=self._regret_table[player][hash]
+
+        advantages = np.maximum(0, regrets)
+        summed_regret = np.sum(advantages)
+
+        if summed_regret > 0:
+            probabilities = advantages / summed_regret
+        elif summed_regret==0:
+            probabilities = np.ones_like(regrets) / len(regrets)  # равномерное распределение
+        else:
+            # fallback: выбрать единственное наибольшее по "сырым" регретам действие
+            masked = regrets.copy()
+            masked[self._legal_action_mask == 0] = -np.inf
+            best_action = np.argmax(masked)
+            probabilities = np.zeros_like(regrets)
+            probabilities[best_action] = 1.0
+
+        return probabilities
+    
     def _traverse_game_tree(self, state, traverser, depth=0):
         legal_actions = self._env_wrapper.legal_actions()
         legal_actions_mask = np.zeros(self._env_wrapper.get_actions_count(), dtype=np.float32)
@@ -363,6 +395,8 @@ class DeepCFRSolver:
         current_player = state["current_player"]
 
         if current_player == traverser:
+
+            #strategy=self.get_strategy_from_table(current_player,legal_actions_mask,obs["concat"])
             _, strategy = self._adv_networks[traverser].get_matched_regrets(
                 torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
@@ -386,9 +420,9 @@ class DeepCFRSolver:
 
             ev = np.sum(exp_payoff * strategy)
             
-            self._action_counts[traverser][traverser][ np.argmax(strategy)] += 1
+            
             samp_regret = (exp_payoff - ev) * legal_actions_mask 
-
+            #samp_regret = np.clip(samp_regret, -5, 5)
 
             # max_scaling_factor = 50.0
             # min_scaling_factor = 5.0
@@ -403,19 +437,26 @@ class DeepCFRSolver:
             #print(f"raw_regrets:{_} samp_regrets: {samp_regret}")
             #max_abs = max(np.max(np.abs(samp_regret)), 1.0)
             #samp_regret = np.clip(samp_regret / max_abs, -1.0, 1.0)
-            samp_regret=np.maximum(samp_regret,0)
+            #samp_regret=np.maximum(samp_regret,0)
 
+            self._action_counts[traverser][traverser][np.argmax(strategy)] += 1
+            self._summ_regrets[current_player]+=samp_regret
+            self._count_regrets[current_player]+=1
+
+            #self._regret_table[traverser][self.hash_info_state(obs["concat"])]=samp_regret
             #if  samp_regret.sum()>1e-4:
             self._advantage_memories[traverser].add(obs["concat"], int(self._iteration), samp_regret, legal_actions_mask)
 
             return ev
 
         else:
+
+            #strategy=self.get_strategy_from_table(current_player,legal_actions_mask,obs["concat"])
             _, strategy = self._adv_networks[current_player].get_matched_regrets(
                 torch.tensor(obs["concat"], dtype=torch.float32).to(self.device),
                 torch.tensor(legal_actions_mask, dtype=torch.float32).to(self.device))
             
-            self._action_counts[traverser][current_player][ np.argmax(strategy)] += 1
+            self._action_counts[traverser][current_player][np.argmax(strategy)] += 1
 
             self._strategy_memories.add(obs["concat"], int(self._iteration), strategy, legal_actions_mask)
             sampled_action = np.random.choice(range(self._num_actions), p=strategy)
@@ -445,9 +486,10 @@ class DeepCFRSolver:
 
     def solve(self):
         self._action_counts=[[[0]*self._num_actions for _ in range(self._num_players)]for _ in range(self._num_players)]
+        self._summ_regrets=[[0 for __ in range(self._num_actions)] for _ in range(self._num_players)]
+        self._count_regrets=[0 for _ in range(self._num_players)]
 
-       
-        for p in range(self._num_players-1):
+        for p in range(self._num_players):
             self._logger.info(f"Traverse {p} player")
             start = time.time()
             for traverse_iter in range(self._num_traversals):
@@ -456,7 +498,7 @@ class DeepCFRSolver:
 
                 #self._env_wrapper.SetPlayersHands(["AsAd", "7s2d"]) #DEBUG
 
-                self._traverse_game_tree(root_state, traverser=p)
+                self._traverse_game_tree(root_state,p)
 
             if self._enable_tb:
                 self._tensorboard.add_scalar(f"solver{self._solver_idx}/buffer/adv{p}", len(self._advantage_memories[p]) ,self._iteration)
@@ -464,10 +506,7 @@ class DeepCFRSolver:
             self._logger.info(f"Traverse time:{time.time()-start}")
 
           
-            
-            
-
-        for p in range(self._num_players):
+    
             if len(self._advantage_memories[p]) < self._batch_size_advantage:
                 continue
             if self._reinitialize_advantage_networks:
@@ -477,9 +516,13 @@ class DeepCFRSolver:
             if self._enable_tb:
                 self._tensorboard.add_scalar(f"solver{self._solver_idx}/loss/adv_net{p}", loss,self._iteration)
             self._logger.info(f"Loss: {loss}")
-        
+            
+            
+
+     
         for net_idx in range(self._num_players):
             for player_idx in range(self._num_players):
+                #actions
                 fig, ax = plt.subplots()
                 bars = ax.bar(range(len(self._action_counts[net_idx][player_idx])), self._action_counts[net_idx][player_idx])
                 ax.set_xlabel('Action')
@@ -491,17 +534,25 @@ class DeepCFRSolver:
                     fig,
                     self._iteration
                 )
+
+            avg_regrets=self._summ_regrets[player_idx]/self._count_regrets[player_idx]
+
+            for i, val in enumerate(avg_regrets):
+                self._tensorboard.add_scalar(f"avg_regrets/net{net_idx}/action_{i}", val, self._iteration)
+
+
             if net_idx==0:
                 self.PreflopGTOMatrixConverge(net_idx)
 
 
         self._iteration += 1
-        
+
         for i in range(self._num_players):
             if len(self._advantage_memories[i]) < self._batch_size_advantage:
                 return
         if len(self._strategy_memories) < self._batch_size_strategy:
             return
+        
         self._logger.info("Learn strategy network")
         policy_loss = self._learn_strategy_network()
         if self._enable_tb:
